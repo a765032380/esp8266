@@ -5,7 +5,7 @@
 // #include "Blinker/BlinkerUtility.h"
 #include "../Server/BlinkerServer.h"
 
-#define BLINKER_VERSION                 "0.3.5"
+#define BLINKER_VERSION                 "0.3.0.3.80211227"
 
 #define BLINKER_CONNECT_TIMEOUT_MS      10000UL
 
@@ -39,6 +39,10 @@
 
 #define BLINKER_AQI_MSG_LIMIT           60000UL
 
+#define BLINKER_LOG_MSG_LIMIT           60000UL
+
+#define BLINKER_COD_MSG_LIMIT           60000UL
+
 #define BLINKER_CONFIG_UPDATE_LIMIT     10000UL
 
 #define BLINKER_CONFIG_GET_LIMIT        10000UL
@@ -47,7 +51,7 @@
 
 #define BLINKER_AT_MSG_TIMEOUT          1000UL
 
-#define BLINKER_SERVER_CONNECT_LIMIT    12
+#define BLINKER_SERVER_CONNECT_LIMIT    3
 
 #if defined(BLINKER_DATA_HOUR_UPDATE)
     #define BLINKER_DATA_FREQ_TIME          3600UL
@@ -399,6 +403,8 @@
 
 #define BLINKER_CMD_POWERSTATE          "pState"
 
+#define BLINKER_CMD_POWERSTATE1         "pstate"
+
 #define BLINKER_CMD_NUM                 "num"
 
 #define BLINKER_CMD_BRIGHTNESS          "bright"
@@ -442,6 +448,34 @@
 #define BLINKER_CMD_MUSIC               "music"
 
 #define BLINKER_CMD_COMMON              "common"
+
+#define BLINKER_CMD_LEVEL               "level"
+
+#define BLINKER_CMD_LEVEL_UP            "upLevel"
+
+#define BLINKER_CMD_LEVEL_DW            "downLevel"
+
+#define BLINKER_CMD_TEMP_UP             "upTemp"
+
+#define BLINKER_CMD_TEMP_DW             "downTemp"
+
+#define BLINKER_CMD_HSTATE              "hsState"
+
+#define BLINKER_CMD_VSTATE              "vsState"
+
+#define BLINKER_CMD_ECO                 "eco"
+
+#define BLINKER_CMD_ANION               "anion"
+
+#define BLINKER_CMD_HEATER              "heater"
+
+#define BLINKER_CMD_DRYER               "dryer"
+
+#define BLINKER_CMD_SOFT                "soft"
+
+#define BLINKER_CMD_UV                  "uv"
+
+#define BLINKER_CMD_UNSB                "unsb"
 
 #define BLINKER_CMD_ALIGENIE_READING    "reading"
 
@@ -605,6 +639,10 @@
 #endif
 
 #define BLINKER_MAX_BLINKER_DATA_SIZE   8
+
+#define BLINKER_MAX_RTDATA_DATA_SIZE    10
+
+#define BLINKER_MAX_RTDATA_SIZE         4
 
 #define BLINKER_MAX_DATA_COUNT          4
 
@@ -1436,6 +1474,12 @@ Success--[AT+MIPLDISCOVERRSP=0,22903,1,24,"5850;5851;5852;5853;5750"]
 
     #define BLINKER_CMD_JSON_DATA_NUMBER        30
 
+    #define BLINKER_CMD_LOG_NUMBER              31
+
+    #define BLINKER_CMD_COD_NUMBER              32
+
+    #define BLINKER_CMD_JSON_DATA_GET_NUMBER    33
+
     #define BLINKER_CMD_DEFAULT_NUMBER          0
 
 #endif
@@ -1630,7 +1674,8 @@ Success--[AT+MIPLDISCOVERRSP=0,22903,1,24,"5850;5851;5852;5853;5750"]
     defined(BLINKER_PRO_ESP) || defined(BLINKER_LOWPOWER_AIR202) || \
     defined(BLINKER_WIFI_GATEWAY) || defined(BLINKER_WIFI_SUBDEVICE) || \
     defined(BLINKER_QRCODE_NBIOT_SIM7020) || defined(BLINKER_NBIOT_SIM7000) || \
-    defined(BLINKER_QRCODE_NBIOT_SIM7000)
+    defined(BLINKER_QRCODE_NBIOT_SIM7000) || defined(BLINKER_WIFI) || \
+    defined(BLINKER_MQTT)
 
     #ifndef BLINKER_BUTTON_PIN
         #define BLINKER_BUTTON_PIN              2

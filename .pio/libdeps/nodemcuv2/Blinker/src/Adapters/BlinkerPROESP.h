@@ -4,14 +4,23 @@
 #if (defined(ESP8266) || defined(ESP32))
 
 #if defined(ESP8266)
-    #include <ESP8266mDNS.h>
     #include <ESP8266WiFi.h>
+    #include <ESP8266mDNS.h>
     #include <ESP8266HTTPClient.h>
 
     #include <base64.h>
 #elif defined(ESP32)
-    #include <ESPmDNS.h>
     #include <WiFi.h>
+
+    #if defined(ESP32)
+        extern "C" {
+            #include <esp_err.h>
+            #include <esp_wifi.h>
+            #include <esp_event.h>
+        }
+    #endif
+
+    #include <ESPmDNS.h>
     #include <HTTPClient.h>
 
     #include <base64.h>
@@ -50,7 +59,12 @@ enum b_config_t {
     BLINKER_AP_CONFIG
 };
 
-b_config_t  _configType = BLINKER_SMART_CONFIG;
+enum b_broker_t {
+    aliyun_b,
+    blinker_b
+};
+
+b_config_t  _configType = BLINKER_AP_CONFIG;
 
 class BlinkerPROESP : public BlinkerStream
 {
@@ -87,6 +101,7 @@ class BlinkerPROESP : public BlinkerStream
         //             char *name2, char *type2, char *data2);
         char * deviceName();
         char * authKey() { return AUTHKEY_PRO; }
+        char * token() { if (!isMQTTinit) return ""; else return MQTT_KEY_PRO; }
         int init()
         { 
             // webSocket_PRO.loop();
@@ -136,6 +151,8 @@ class BlinkerPROESP : public BlinkerStream
         void parseData(const char* data);
 
     protected :
+        b_broker_t  _use_broker = aliyun_b;
+        char        _messageId[20];
         BlinkerSharer * _sharers[BLINKER_MQTT_MAX_SHARERS_NUM];
         uint8_t     _sharerCount = 0;
         uint8_t     _sharerFrom = BLINKER_MQTT_FROM_AUTHER;
@@ -199,14 +216,20 @@ class BlinkerPROESP : public BlinkerStream
 
 
 #if defined(ESP8266)
-    BearSSL::WiFiClientSecure   client_mqtt;
+    #ifndef BLINKER_WITHOUT_SSL
+        BearSSL::WiFiClientSecure   client_mqtt;
+    #else
+        WiFiClient               client_mqtt;
+    #endif
     // WiFiClientSecure            client_mqtt;
 #elif defined(ESP32)
     WiFiClientSecure            client_s;
 #endif
 
+#define BLINKER_PROTOCOL_MQTT    mqtt_PRO
+
 WiFiClient              client;
-Adafruit_MQTT_Client*       mqtt_PRO;
+Adafruit_MQTT_Client*       mqtt_PRO = NULL;
 // Adafruit_MQTT_Publish   *iotPub;
 Adafruit_MQTT_Subscribe*    iotSub_PRO;
 
@@ -317,8 +340,10 @@ int BlinkerPROESP::connect()
     BLINKER_LOG(BLINKER_F("Connecting to MQTT... "));
 
     #if defined(ESP8266)
-        client_mqtt.setInsecure();
-        ::delay(10);
+        #ifndef BLINKER_WITHOUT_SSL
+            client_mqtt.setInsecure();
+            ::delay(10);
+        #endif
     #endif
 
     BLINKER_LOG_FreeHeap_ALL();
@@ -706,6 +731,17 @@ void BlinkerPROESP::parseData(const char* data)
     String _uuid = root["fromDevice"].as<String>();
     String dataGet = root["data"].as<String>();
 
+    if (_use_broker == blinker_b)
+    {
+        if (_uuid == "ServerSender")
+        {
+            _uuid = root["data"]["from"].as<String>();
+            String _mId = root["data"]["messageId"].as<String>();
+            strcpy(_messageId, _mId.c_str());
+            BLINKER_LOG_ALL(BLINKER_F("_messageId: "), _mId);
+        }
+    }
+
     BLINKER_LOG_ALL(BLINKER_F("data: "), dataGet);
     BLINKER_LOG_ALL(BLINKER_F("fromDevice: "), _uuid);
 
@@ -776,14 +812,17 @@ void BlinkerPROESP::parseData(const char* data)
                     BLINKER_ERR_LOG_ALL(BLINKER_F("No authority uuid found, check is from bridge/share device, data: "), dataGet);
 
                     _needCheckShare = true;
+                    dataGet = data;
                 }
             }
         }
-        // else
-        // {
+        else
+        {
+            dataGet = data;
+        }
             // dataGet = String((char *)iotSub_PRO->lastread);
             // root.printTo(dataGet);
-            serializeJson(root, dataGet);
+            // serializeJson(root, dataGet);
 
         //     BLINKER_ERR_LOG_ALL(BLINKER_F("No authority uuid found, 
         //                         check is from bridge/share device, \
@@ -888,6 +927,11 @@ int BlinkerPROESP::print(char * data, bool needCheck)
         //     // payload += UUID_PRO;
         //     // payload += BLINKER_F("\",\"deviceType\":\"OwnApp\"}");
         // }
+
+        if (isMQTTinit == false) {
+            BLINKER_ERR_LOG("print fail, mqtt not init...");
+            return false;
+        }
 
         uint16_t num = strlen(data);
 
@@ -1179,39 +1223,32 @@ int BlinkerPROESP::bPrint(char * name, const String & data)
 
 int BlinkerPROESP::aliPrint(const String & data)
 {
-    // String payload;
-
-    // payload = BLINKER_F("{\"data\":");
-    // payload += data;
-    // payload += BLINKER_F(",\"fromDevice\":\"");
-    // payload += MQTT_DEVICEID_PRO;
-    // payload += BLINKER_F("\",\"toDevice\":\"AliGenie_r\"");
-    // payload += BLINKER_F(",\"deviceType\":\"vAssistant\"}");
-
-    // uint8_t num = strlen(data);
-    // for(uint8_t c_num = num; c_num > 0; c_num--)
-    // {
-    //     data[c_num+7] = data[c_num-1];
-    // }
-
     String data_add = BLINKER_F("{\"data\":");
-    // for(uint8_t c_num = 0; c_num < 8; c_num++)
-    // {
-    //     data[c_num] = data_add[c_num];
-    // }
+    
+    if (_use_broker == aliyun_b)
+    {
+        data_add += data;
+    }
+    else if (_use_broker == blinker_b)
+    {
+        data_add += data.substring(0, data.length() - 1);
+        data_add += BLINKER_F(",\"messageId\":\"");
+        data_add += STRING_format(_messageId);
+        data_add += BLINKER_F("\"}");
+    }
 
-    // data_add = BLINKER_F(",\"fromDevice\":\"");
-    // strcat(data, data_add.c_str());
-    // strcat(data, MQTT_DEVICEID_PRO);
-    // data_add = BLINKER_F("\",\"toDevice\":\"AliGenie_r\"");
-    // strcat(data, data_add.c_str());
-    // data_add = BLINKER_F(",\"deviceType\":\"vAssistant\"}");
-    // strcat(data, data_add.c_str());
-
-    data_add += data;
     data_add += BLINKER_F(",\"fromDevice\":\"");
     data_add += MQTT_DEVICEID_PRO;
-    data_add += BLINKER_F("\",\"toDevice\":\"AliGenie_r\"");
+
+    if (_use_broker == aliyun_b)
+    {
+        data_add += BLINKER_F("\",\"toDevice\":\"AliGenie_r\"");
+    }
+    else if (_use_broker == blinker_b)
+    {
+        data_add += BLINKER_F("\",\"toDevice\":\"ServerReceiver\"");
+    }
+
     data_add += BLINKER_F(",\"deviceType\":\"vAssistant\"}");
 
     if (!isJson(data_add)) return false;
@@ -1260,7 +1297,18 @@ int BlinkerPROESP::aliPrint(const String & data)
 
         is_rrpc = false;
 
-        if (! mqtt_PRO->publish(BLINKER_RRPC_PUB_TOPIC_MQTT, base64::encode(data_add).c_str()))
+        char send_data[1024];
+
+        if (_use_broker == aliyun_b)
+        {
+            strcpy(send_data, base64::encode(data_add).c_str());
+        }
+        else if (_use_broker == blinker_b)
+        {
+            strcpy(send_data, data_add.c_str());
+        }
+
+        if (! mqtt_PRO->publish(BLINKER_RRPC_PUB_TOPIC_MQTT, send_data))
         {
             BLINKER_LOG_ALL(data_add);
             BLINKER_LOG_ALL(BLINKER_F("...Failed"));
@@ -1293,10 +1341,51 @@ int BlinkerPROESP::duerPrint(const String & data, bool report)
 {
     String data_add = BLINKER_F("{\"data\":");
 
-    data_add += data;
+    if (report)
+    {
+        data_add += BLINKER_F("{\"report\":");
+    
+        if (_use_broker == aliyun_b)
+        {
+            data_add += data;
+        }
+        else if (_use_broker == blinker_b)
+        {
+            data_add += data.substring(0, data.length() - 1);
+            data_add += BLINKER_F(",\"messageId\":\"");
+            data_add += STRING_format(_messageId);
+            data_add += BLINKER_F("\"}");
+        }
+
+        data_add += BLINKER_F("}");
+    }
+    else
+    {
+        if (_use_broker == aliyun_b)
+        {
+            data_add += data;
+        }
+        else if (_use_broker == blinker_b)
+        {
+            data_add += data.substring(0, data.length() - 1);
+            data_add += BLINKER_F(",\"messageId\":\"");
+            data_add += STRING_format(_messageId);
+            data_add += BLINKER_F("\"}");
+        }
+    }
+
     data_add += BLINKER_F(",\"fromDevice\":\"");
     data_add += MQTT_DEVICEID_PRO;
-    data_add += BLINKER_F("\",\"toDevice\":\"DuerOS_r\"");
+
+    if (_use_broker == aliyun_b)
+    {
+        data_add += BLINKER_F("\",\"toDevice\":\"DuerOS_r\"");
+    }
+    else if (_use_broker == blinker_b)
+    {
+        data_add += BLINKER_F("\",\"toDevice\":\"ServerReceiver\"");
+    }
+
     data_add += BLINKER_F(",\"deviceType\":\"vAssistant\"}");
 
     if (!isJson(data_add)) return false;
@@ -1339,7 +1428,18 @@ int BlinkerPROESP::duerPrint(const String & data, bool report)
             strcpy(BLINKER_RRPC_PUB_TOPIC_MQTT, BLINKER_PUB_TOPIC_PRO);
         }
 
-        if (! mqtt_PRO->publish(BLINKER_RRPC_PUB_TOPIC_MQTT, is_rrpc ? base64::encode(data_add).c_str() : data_add.c_str()))
+        char send_data[1024];
+
+        if (_use_broker == aliyun_b)
+        {
+            strcpy(send_data, base64::encode(data_add).c_str());
+        }
+        else if (_use_broker == blinker_b)
+        {
+            strcpy(send_data, data_add.c_str());
+        }
+
+        if (! mqtt_PRO->publish(BLINKER_RRPC_PUB_TOPIC_MQTT, send_data))
         {
             BLINKER_LOG_ALL(data_add);
             BLINKER_LOG_ALL(BLINKER_F("...Failed"));
@@ -1375,11 +1475,31 @@ int BlinkerPROESP::duerPrint(const String & data, bool report)
 int BlinkerPROESP::miPrint(const String & data)
 {
     String data_add = BLINKER_F("{\"data\":");
+    
+    if (_use_broker == aliyun_b)
+    {
+        data_add += data;
+    }
+    else if (_use_broker == blinker_b)
+    {
+        data_add += data.substring(0, data.length() - 1);
+        data_add += BLINKER_F(",\"messageId\":\"");
+        data_add += STRING_format(_messageId);
+        data_add += BLINKER_F("\"}");
+    }
 
-    data_add += data;
     data_add += BLINKER_F(",\"fromDevice\":\"");
     data_add += MQTT_DEVICEID_PRO;
-    data_add += BLINKER_F("\",\"toDevice\":\"MIOT_r\"");
+
+    if (_use_broker == aliyun_b)
+    {
+        data_add += BLINKER_F("\",\"toDevice\":\"MIOT_r\"");
+    }
+    else if (_use_broker == blinker_b)
+    {
+        data_add += BLINKER_F("\",\"toDevice\":\"ServerReceiver\"");
+    }
+
     data_add += BLINKER_F(",\"deviceType\":\"vAssistant\"}");
 
     if (!isJson(data_add)) return false;
@@ -1424,7 +1544,18 @@ int BlinkerPROESP::miPrint(const String & data)
 
         is_rrpc = false;
 
-        if (! mqtt_PRO->publish(BLINKER_RRPC_PUB_TOPIC_MQTT, base64::encode(data_add).c_str()))
+        char send_data[1024];
+
+        if (_use_broker == aliyun_b)
+        {
+            strcpy(send_data, base64::encode(data_add).c_str());
+        }
+        else if (_use_broker == blinker_b)
+        {
+            strcpy(send_data, data_add.c_str());
+        }
+
+        if (! mqtt_PRO->publish(BLINKER_RRPC_PUB_TOPIC_MQTT, send_data))
         {
             BLINKER_LOG_ALL(data_add);
             BLINKER_LOG_ALL(BLINKER_F("...Failed"));
@@ -1841,10 +1972,16 @@ int BlinkerPROESP::connectServer() {
 
         // client_mqtt.stop();
 
-        std::unique_ptr<BearSSL::WiFiClientSecure>client_s(new BearSSL::WiFiClientSecure);
+        #ifndef BLINKER_WITHOUT_SSL
+            client_mqtt.stop();
 
-        // client_s->setFingerprint(fingerprint);
-        client_s->setInsecure();
+            std::unique_ptr<BearSSL::WiFiClientSecure>client_s(new BearSSL::WiFiClientSecure);
+
+            // client_s->setFingerprint(fingerprint);
+            client_s->setInsecure();
+        #else
+            WiFiClient               client_s;
+        #endif
 
         String url_iot = BLINKER_F("/api/v1/user/device/auth/get?deviceType=");
             url_iot += _deviceType;
@@ -1890,7 +2027,19 @@ int BlinkerPROESP::connectServer() {
             url_iot += BLINKER_MIOT_TYPE;
         #endif
 
-        url_iot = "https://" + host + url_iot;
+        url_iot += BLINKER_F("&version=");
+        url_iot += BLINKER_OTA_VERSION_CODE;
+        #ifndef BLINKER_WITHOUT_SSL
+        url_iot += BLINKER_F("&protocol=mqtts");
+        #else
+        url_iot += BLINKER_F("&protocol=mqtt");
+        #endif
+
+        #ifndef BLINKER_WITHOUT_SSL
+            url_iot = "https://" + host + url_iot;
+        #else
+            url_iot = "http://" + host + url_iot;
+        #endif
 
         BLINKER_LOG_ALL(BLINKER_F("HTTPS begin: "), url_iot);
 
@@ -1898,7 +2047,11 @@ int BlinkerPROESP::connectServer() {
 
         String payload;
 
+        #ifndef BLINKER_WITHOUT_SSL
         if (http.begin(*client_s, url_iot)) {  // HTTPS
+        #else
+        if (http.begin(client_s, url_iot)) {
+        #endif
 
             // Serial.print("[HTTPS] GET...\n");
             // start connection and send HTTP header
@@ -2083,10 +2236,16 @@ int BlinkerPROESP::connectServer() {
 #if defined(ESP8266)
     // client_mqtt.stop();
 
-    std::unique_ptr<BearSSL::WiFiClientSecure>client_s(new BearSSL::WiFiClientSecure);
+    #ifndef BLINKER_WITHOUT_SSL
+        client_mqtt.stop();
 
-    // client_s->setFingerprint(fingerprint);
-    client_s->setInsecure();
+        std::unique_ptr<BearSSL::WiFiClientSecure>client_s(new BearSSL::WiFiClientSecure);
+
+        // client_s->setFingerprint(fingerprint);
+        client_s->setInsecure();
+    #else
+        WiFiClient               client_s;
+    #endif
 
     String url_iot = BLINKER_F("/api/v1/user/device/auth?authKey=");
     url_iot += AUTHKEY_PRO;
@@ -2128,11 +2287,20 @@ int BlinkerPROESP::connectServer() {
     #elif defined(BLINKER_MIOT_TYPE)
         url_iot += BLINKER_MIOT_TYPE;
     #endif
-    
+
     url_iot += BLINKER_F("&version=");
     url_iot += BLINKER_OTA_VERSION_CODE;
+    #ifndef BLINKER_WITHOUT_SSL
+    url_iot += BLINKER_F("&protocol=mqtts");
+    #else
+    url_iot += BLINKER_F("&protocol=mqtt");
+    #endif
 
-    url_iot = "https://" + host + url_iot;
+    #ifndef BLINKER_WITHOUT_SSL
+        url_iot = "https://" + host + url_iot;
+    #else
+        url_iot = "http://" + host + url_iot;
+    #endif
 
     HTTPClient http;
 
@@ -2140,8 +2308,11 @@ int BlinkerPROESP::connectServer() {
 
     BLINKER_LOG_ALL(BLINKER_F("[HTTP] begin: "), url_iot);
 
+    #ifndef BLINKER_WITHOUT_SSL
     if (http.begin(*client_s, url_iot)) {  // HTTPS
-
+    #else
+    if (http.begin(client_s, url_iot)) {
+    #endif
         // Serial.print("[HTTPS] GET...\n");
         // start connection and send HTTP header
         int httpCode = http.GET();
@@ -2185,6 +2356,10 @@ int BlinkerPROESP::connectServer() {
         url_iot += BLINKER_F("&aliType=multi_outlet");
     #elif defined(BLINKER_ALIGENIE_SENSOR)
         url_iot += BLINKER_F("&aliType=sensor");
+    #elif defined(BLINKER_ALIGENIE_FAN)
+        url_iot += BLINKER_F("&aliType=fan");
+    #elif defined(BLINKER_ALIGENIE_AIRCONDITION)
+        url_iot += BLINKER_F("&aliType=aircondition");
     #elif defined(BLINKER_ALIGENIE_TYPE)
         url_iot += BLINKER_ALIGENIE_TYPE;
     #endif
@@ -2197,6 +2372,10 @@ int BlinkerPROESP::connectServer() {
         url_iot += BLINKER_F("&duerType=MULTI_SOCKET");
     #elif defined(BLINKER_DUEROS_SENSOR)
         url_iot += BLINKER_F("&duerType=AIR_MONITOR");
+    #elif defined(BLINKER_DUEROS_FAN)
+        url_iot += BLINKER_F("&duerType=FAN");
+    #elif defined(BLINKER_DUEROS_AIRCONDITION)
+        url_iot += BLINKER_F("&duerType=AIR_CONDITION");
     #elif defined(BLINKER_DUEROS_TYPE)
         url_iot += BLINKER_DUEROS_TYPE;
     #endif
@@ -2209,12 +2388,21 @@ int BlinkerPROESP::connectServer() {
         url_iot += BLINKER_F("&miType=multi_outlet");
     #elif defined(BLINKER_MIOT_SENSOR)
         url_iot += BLINKER_F("&miType=sensor");
+    #elif defined(BLINKER_MIOT_FAN)
+        url_iot += BLINKER_F("&miType=fan");
+    #elif defined(BLINKER_MIOT_AIRCONDITION)
+        url_iot += BLINKER_F("&miType=aircondition");
     #elif defined(BLINKER_MIOT_TYPE)
         url_iot += BLINKER_MIOT_TYPE;
     #endif
-    
+
     url_iot += BLINKER_F("&version=");
     url_iot += BLINKER_OTA_VERSION_CODE;
+    #ifndef BLINKER_WITHOUT_SSL
+    url_iot += BLINKER_F("&protocol=mqtts");
+    #else
+    url_iot += BLINKER_F("&protocol=mqtt");
+    #endif
 
     BLINKER_LOG_ALL(BLINKER_F("HTTPS begin: "), url_iot);
 
@@ -2282,6 +2470,12 @@ int BlinkerPROESP::connectServer() {
     String _broker = root[BLINKER_CMD_DETAIL][BLINKER_CMD_BROKER];
     String _uuid = root[BLINKER_CMD_DETAIL][BLINKER_CMD_UUID];
     String _authKey = root[BLINKER_CMD_DETAIL][BLINKER_CMD_KEY];
+    String _host = root[BLINKER_CMD_DETAIL]["host"];
+    uint32_t _port = root[BLINKER_CMD_DETAIL]["port"];
+    uint8_t _num = _host.indexOf("://");
+    BLINKER_LOG_ALL("_num: ", _num);
+    if (_num > 0) _num += 3;
+    _host = _host.substring(_num, _host.length());
 
     if (isMQTTinit)
     {
@@ -2309,8 +2503,15 @@ int BlinkerPROESP::connectServer() {
         // String _deviceName = _userID.substring(12, 36);
         // MQTT_DEVICEID_PRO = (char*)malloc((_deviceName.length()+1)*sizeof(char));
         // String _deviceName = _userID.substring(12, 36);
-        MQTT_DEVICEID_PRO = (char*)malloc((_userID.length()+1)*sizeof(char));
-        strcpy(MQTT_DEVICEID_PRO, _userID.c_str());
+        // MQTT_DEVICEID_PRO = (char*)malloc((_userID.length()+1)*sizeof(char));
+        // strcpy(MQTT_DEVICEID_PRO, _userID.c_str());
+        #if defined(BLINKER_WITHOUT_SSL)
+            MQTT_DEVICEID_PRO = (char*)malloc((24+1)*sizeof(char));
+            strcpy(MQTT_DEVICEID_PRO, _userName.substring(0, 24).c_str());
+        #else
+            MQTT_DEVICEID_PRO = (char*)malloc((_userID.length()+1)*sizeof(char));
+            strcpy(MQTT_DEVICEID_PRO, _userID.c_str());
+        #endif
         MQTT_ID_PRO = (char*)malloc((_userID.length()+1)*sizeof(char));
         strcpy(MQTT_ID_PRO, _userID.c_str());
         MQTT_NAME_PRO = (char*)malloc((_userName.length()+1)*sizeof(char));
@@ -2323,7 +2524,9 @@ int BlinkerPROESP::connectServer() {
         strcpy(MQTT_HOST_PRO, BLINKER_MQTT_ALIYUN_HOST);
         // AUTHKEY_PRO = (char*)malloc((_authKey.length()+1)*sizeof(char));
         // strcpy(AUTHKEY_PRO, _authKey.c_str());
-        MQTT_PORT_PRO = BLINKER_MQTT_ALIYUN_PORT;
+        MQTT_PORT_PRO = _port;
+
+        _use_broker = aliyun_b;
 
         BLINKER_LOG_ALL(BLINKER_F("===================="));
     }
@@ -2361,6 +2564,26 @@ int BlinkerPROESP::connectServer() {
         MQTT_HOST_PRO = (char*)malloc((strlen(BLINKER_MQTT_ONENET_HOST)+1)*sizeof(char));
         strcpy(MQTT_HOST_PRO, BLINKER_MQTT_ONENET_HOST);
         MQTT_PORT_PRO = BLINKER_MQTT_ONENET_PORT;
+
+        // _use_broker = blinker_b;
+    }    
+    else if (_broker == BLINKER_MQTT_BORKER_BLINKER) {
+        // memcpy(DEVICE_NAME_MQTT, _userID.c_str(), 12);
+        MQTT_DEVICEID_PRO = (char*)malloc((_userID.length()+1)*sizeof(char));
+        strcpy(MQTT_DEVICEID_PRO, _userID.c_str());
+        MQTT_ID_PRO = (char*)malloc((_userID.length()+1)*sizeof(char));
+        strcpy(MQTT_ID_PRO, _userID.c_str());
+        MQTT_NAME_PRO = (char*)malloc((_userName.length()+1)*sizeof(char));
+        strcpy(MQTT_NAME_PRO, _userName.c_str());
+        MQTT_KEY_PRO = (char*)malloc((_key.length()+1)*sizeof(char));
+        strcpy(MQTT_KEY_PRO, _key.c_str());
+        MQTT_PRODUCTINFO_PRO = (char*)malloc((_productInfo.length()+1)*sizeof(char));
+        strcpy(MQTT_PRODUCTINFO_PRO, _productInfo.c_str());
+        MQTT_HOST_PRO = (char*)malloc((_host.length()+1)*sizeof(char));
+        strcpy(MQTT_HOST_PRO, _host.c_str());
+        MQTT_PORT_PRO = _port;
+
+        _use_broker = blinker_b;
     }
     UUID_PRO = (char*)malloc((_uuid.length()+1)*sizeof(char));
     strcpy(UUID_PRO, _uuid.c_str());
@@ -2491,6 +2714,43 @@ int BlinkerPROESP::connectServer() {
         
         BLINKER_LOG_ALL(BLINKER_F("BLINKER_SUB_TOPIC_PRO: "), BLINKER_SUB_TOPIC_PRO);
     }
+    else if (_broker == BLINKER_MQTT_BORKER_BLINKER) {
+        String PUB_TOPIC_STR = BLINKER_F("/device");
+        // PUB_TOPIC_STR += MQTT_PRODUCTINFO_MQTT;
+        PUB_TOPIC_STR += BLINKER_F("/");
+        PUB_TOPIC_STR += MQTT_ID_PRO;
+        PUB_TOPIC_STR += BLINKER_F("/s");
+
+        BLINKER_PUB_TOPIC_PRO = (char*)malloc((PUB_TOPIC_STR.length() + 1)*sizeof(char));
+        // memcpy(BLINKER_PUB_TOPIC_MQTT, PUB_TOPIC_STR.c_str(), str_len);
+        strcpy(BLINKER_PUB_TOPIC_PRO, PUB_TOPIC_STR.c_str());
+
+        BLINKER_LOG_ALL(BLINKER_F("BLINKER_PUB_TOPIC_PRO: "), BLINKER_PUB_TOPIC_PRO);
+
+        String SUB_TOPIC_STR = BLINKER_F("/device");
+        // SUB_TOPIC_STR += MQTT_PRODUCTINFO_MQTT;
+        SUB_TOPIC_STR += BLINKER_F("/");
+        SUB_TOPIC_STR += MQTT_ID_PRO;
+        SUB_TOPIC_STR += BLINKER_F("/r");
+
+        BLINKER_SUB_TOPIC_PRO = (char*)malloc((SUB_TOPIC_STR.length() + 1)*sizeof(char));
+        // memcpy(BLINKER_SUB_TOPIC_MQTT, SUB_TOPIC_STR.c_str(), str_len);
+        strcpy(BLINKER_SUB_TOPIC_PRO, SUB_TOPIC_STR.c_str());
+
+        BLINKER_LOG_ALL(BLINKER_F("BLINKER_SUB_TOPIC_PRO: "), BLINKER_SUB_TOPIC_PRO);
+
+        
+        // SUB_TOPIC_STR = BLINKER_F("/sys/");
+        // SUB_TOPIC_STR += MQTT_PRODUCTINFO_MQTT;
+        // SUB_TOPIC_STR += BLINKER_F("/");
+        // SUB_TOPIC_STR += MQTT_ID_MQTT;
+        // SUB_TOPIC_STR += BLINKER_F("/rrpc/request/");
+
+        // BLINKER_RRPC_SUB_TOPIC_MQTT = (char*)malloc((SUB_TOPIC_STR.length() + 1)*sizeof(char));
+        // // memcpy(BLINKER_PUB_TOPIC_MQTT, PUB_TOPIC_STR.c_str(), str_len);
+        // strcpy(BLINKER_RRPC_SUB_TOPIC_MQTT, SUB_TOPIC_STR.c_str());
+        
+    }
 
     // BLINKER_LOG_FreeHeap();
 
@@ -2521,6 +2781,18 @@ int BlinkerPROESP::connectServer() {
     else if (_broker == BLINKER_MQTT_BORKER_ONENET) {
         mqtt_PRO = new Adafruit_MQTT_Client(&client, MQTT_HOST_PRO, MQTT_PORT_PRO, MQTT_ID_PRO, MQTT_NAME_PRO, MQTT_KEY_PRO);
     }
+    else if (_broker == BLINKER_MQTT_BORKER_BLINKER) {
+        #if defined(ESP8266)
+            // bool mfln = client_mqtt.probeMaxFragmentLength(MQTT_HOST_MQTT, MQTT_PORT_MQTT, 4096);
+            // if (mfln) {
+            //     client_mqtt.setBufferSizes(1024, 1024);
+            // }
+            // client_mqtt.setInsecure();
+            mqtt_PRO = new Adafruit_MQTT_Client(&client_mqtt, MQTT_HOST_PRO, MQTT_PORT_PRO, MQTT_ID_PRO, MQTT_NAME_PRO, MQTT_KEY_PRO);
+        #elif defined(ESP32)
+            mqtt_PRO = new Adafruit_MQTT_Client(&client_s, MQTT_HOST_PRO, MQTT_PORT_PRO, MQTT_ID_PRO, MQTT_NAME_PRO, MQTT_KEY_PRO);
+        #endif
+    }
 
     // iotPub = new Adafruit_MQTT_Publish(mqtt_PRO, BLINKER_PUB_TOPIC_PRO);
     // if (!isMQTTinit) 
@@ -2540,11 +2812,14 @@ int BlinkerPROESP::connectServer() {
     
     #if defined(ESP8266)
         // client_s->stop();
-        client_mqtt.setInsecure();
+        // if (!isMQTTinit)
+        #ifndef BLINKER_WITHOUT_SSL
+            client_mqtt.setInsecure();
+        #endif
+    #elif defined(ESP32)
+        client_s.setInsecure();
     #endif
-    // connect();
-
-    
+    // connect();    
 
     return true;
 }
@@ -2554,6 +2829,8 @@ void BlinkerPROESP::mDNSInit(String name)
     delay(1000);
 
     BLINKER_LOG(BLINKER_F("WiFi.localIP: "), WiFi.localIP());
+
+    // MDNS.end();
 
 #if defined(ESP8266)
     if (!MDNS.begin(name.c_str(), WiFi.localIP())) {
@@ -2571,6 +2848,7 @@ void BlinkerPROESP::mDNSInit(String name)
             
     MDNS.addService(BLINKER_MDNS_SERVICE_BLINKER, "tcp", WS_SERVERPORT);
     MDNS.addServiceTxt(BLINKER_MDNS_SERVICE_BLINKER, "tcp", "deviceName", name);
+    MDNS.addServiceTxt(BLINKER_MDNS_SERVICE_BLINKER, "tcp", "mac", macDeviceName());
 
     // if (!isWSinit)
     // {
@@ -2899,6 +3177,7 @@ void BlinkerWlan::deleteConfig() {
 }
 
 void BlinkerWlan::smartconfigBegin(uint16_t _time) {
+    WiFi.softAPdisconnect();
     WiFi.mode(WIFI_STA);
     delay(100);
     String softAP_ssid = STRING_format(_deviceType) + "_" + macDeviceName();
@@ -3039,6 +3318,7 @@ bool BlinkerWlan::connected() {
                     BLINKER_LOG(BLINKER_F("APConfig time out"));
                     
                     // WiFi.stopSmartConfig();
+                    WiFi.disconnect();
                     _status = BWL_APCONFIG_TIMEOUT;
                 }
                 return false;
@@ -3153,20 +3433,20 @@ void BlinkerWlan::softAPinit() {
     // BLINKER_LOG(BLINKER_F("HTTP _server started"));
     // BLINKER_LOG(String("URL: http://" + WiFi.softAPIP()));
 
-    #if defined(ESP8266)
-    if (!MDNS.begin(softAP_ssid.c_str(), WiFi.localIP())) {
-    #elif defined(ESP32)
-    if (!MDNS.begin(softAP_ssid.c_str())) {
-    #endif
-        while(1) {
-            ::delay(100);
-        }
-    }
+    // #if defined(ESP8266)
+    // if (!MDNS.begin(softAP_ssid.c_str(), WiFi.localIP())) {
+    // #elif defined(ESP32)
+    // if (!MDNS.begin(softAP_ssid.c_str())) {
+    // #endif
+    //     while(1) {
+    //         ::delay(100);
+    //     }
+    // }
 
-    BLINKER_LOG(BLINKER_F("mDNS responder started"));
+    // BLINKER_LOG(BLINKER_F("mDNS responder started"));
 
-    MDNS.addService(BLINKER_MDNS_SERVICE_BLINKER, "tcp", WS_SERVERPORT);
-    MDNS.addServiceTxt(BLINKER_MDNS_SERVICE_BLINKER, "tcp", "deviceName", macDeviceName());
+    // MDNS.addService(BLINKER_MDNS_SERVICE_BLINKER, "tcp", WS_SERVERPORT);
+    // MDNS.addServiceTxt(BLINKER_MDNS_SERVICE_BLINKER, "tcp", "deviceName", macDeviceName());
 
     webSocket_PRO.begin();
     webSocket_PRO.onEvent(webSocketEvent_PRO);
@@ -3264,7 +3544,7 @@ void BlinkerWlan::parseUrl(String data)
     BLINKER_LOG(BLINKER_F("pswd: "), _pswd);
 
     // free(_server);
-    MDNS.end();
+    // MDNS.end();
     webSocket_PRO.close();
 
     SSID = (char*)malloc(BLINKER_SSID_SIZE*sizeof(char));

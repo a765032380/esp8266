@@ -7,12 +7,12 @@
 #define BLINKER_ESP_AT
 
 #if defined(ESP8266)
-    #include <ESP8266mDNS.h>
     #include <ESP8266WiFi.h>
+    #include <ESP8266mDNS.h>
     #include <ESP8266HTTPClient.h>
 #elif defined(ESP32)
-    #include <ESPmDNS.h>
     #include <WiFi.h>
+    #include <ESPmDNS.h>
     #include <HTTPClient.h>
 #endif
 
@@ -30,6 +30,17 @@
 #include "../Blinker/BlinkerStream.h"
 #include "../Blinker/BlinkerUtility.h"
 #include "../Blinker/BlinkerMQTTATBase.h"
+
+char*       MQTT_HOST_MQTT_AT;
+char*       MQTT_ID_MQTT_AT;
+char*       MQTT_NAME_MQTT_AT;
+char*       MQTT_KEY_MQTT_AT;
+char*       MQTT_PRODUCTINFO_MQTT_AT;
+char*       UUID_MQTT_AT;
+char*       DEVICE_NAME_MQTT_AT;
+char*       BLINKER_PUB_TOPIC_MQTT_AT;
+char*       BLINKER_SUB_TOPIC_MQTT_AT;
+uint16_t    MQTT_PORT_MQTT_AT;
 
 class BlinkerMQTTAT : public BlinkerStream
 {
@@ -76,6 +87,7 @@ class BlinkerMQTTAT : public BlinkerStream
         int toServer(char * data) { return true; }
         char * deviceName();
         char * authKey() { return _authKey; }
+        char * token() { if (!isMQTTinit) return ""; else return MQTT_KEY_MQTT_AT; }
         char * deviceId();// { return MQTT_ID; }
         char * uuid();// { return UUID; }
         void softAPinit();
@@ -196,17 +208,6 @@ class BlinkerMQTTAT : public BlinkerStream
 // extern WiFiClient              client;
 
 // #endif
-
-char*       MQTT_HOST_MQTT_AT;
-char*       MQTT_ID_MQTT_AT;
-char*       MQTT_NAME_MQTT_AT;
-char*       MQTT_KEY_MQTT_AT;
-char*       MQTT_PRODUCTINFO_MQTT_AT;
-char*       UUID_MQTT_AT;
-char*       DEVICE_NAME_MQTT_AT;
-char*       BLINKER_PUB_TOPIC_MQTT_AT;
-char*       BLINKER_SUB_TOPIC_MQTT_AT;
-uint16_t    MQTT_PORT_MQTT_AT;
 
 #if defined(ESP8266)
     #include <SoftwareSerial.h>

@@ -31,9 +31,14 @@
 
         static BearSSL::WiFiClientSecure client_s;
     #endif
-
+    #if defined(BLINKER_WIFI_MULTI)
+    extern ESP8266WiFiMulti wifiMulti;
+    #endif
 #elif defined(ESP32) && !defined(BLINKER_BLE)
     #include <HTTPClient.h>
+    #if defined(BLINKER_WIFI_MULTI)
+    extern WiFiMulti wifiMulti;
+    #endif
 #endif
 
 #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
@@ -218,6 +223,8 @@ class BlinkerApi : public BlinkerProtocol
     public :
         void run();
 
+        void printJson(const String &s);
+
         template <typename T>
         void print(T n);
         void print();
@@ -358,25 +365,28 @@ class BlinkerApi : public BlinkerProtocol
             time_t  startTime();
             time_t  runTime();
 
+            // template<typename T>
+            // bool sms(const T& msg);
             template<typename T>
-            bool sms(const T& msg);
+            bool sms(const T& msg, const String & cel = "");
             template<typename T>
-            bool sms(const T& msg, const char* cel);
-            template<typename T>
-            bool push(const T& msg);
+            bool push(const T& msg, const String & users = "");
             template<typename T>
             bool wechat(const T& msg);
             template<typename T>
-            bool wechat(const String & title, const String & state, const T& msg);
+            bool wechat(const String & title, const String & state, const T& msg, const String & users = "");
             #if !defined(BLINKER_AT_MQTT)
-                void weather(const String & _city = BLINKER_CMD_DEFAULT);
-                void weatherForecast(const String & _city = BLINKER_CMD_DEFAULT);
-                void aqi(const String & _city = BLINKER_CMD_DEFAULT);
+                void weather(uint32_t _city = 0);
+                void weatherForecast(uint32_t _city = 0);
+                void air(uint32_t _city = 0);
             #else
-                String weather(const String & _city = BLINKER_CMD_DEFAULT);
-                String weatherForecast(const String & _city = BLINKER_CMD_DEFAULT);
-                String aqi(const String & _city = BLINKER_CMD_DEFAULT);
+                String weather(uint32_t _city = 0);
+                String weatherForecast(uint32_t _city = 0);
+                String air(uint32_t _city = 0);
             #endif
+
+            void log(const String & msg);
+            void coordinate(float _long, float _lat);
 
             // void deviceHeartbeat(uint32_t heart_time = 600);
 
@@ -406,11 +416,15 @@ class BlinkerApi : public BlinkerProtocol
             bool configDelete();
             template<typename T>
             void dataStorage(char _name[], const T& msg);
+            template<typename T>
+            void sendRtData(char _name[], const T& msg);
+            void printRtData();
             void timeSlotData(char _name[], int32_t msg);
             void timeSlotData(char _name[], uint32_t msg);
             void timeSlotData(char _name[], float msg);
             void textData(const String & msg);
             void jsonData(const String & msg);
+            void jsonDataGet();
             bool dataUpdate();
             void dataGet();
             void dataGet(const String & _type);
@@ -486,6 +500,22 @@ class BlinkerApi : public BlinkerProtocol
         #endif
 
         #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
+            defined(BLINKER_PRO) || defined(BLINKER_PRO_ESP)
+
+            void attachRTData(blinker_callback_t newFunction, uint8_t rt_sec = 1)
+            {
+                // strcpy(_RTDataKey, _name);
+                _RTDataFunc = newFunction;
+
+                if (rt_sec > 0 && rt_sec < 9)
+                {
+                    _RTTime = rt_sec;
+                }
+            }
+
+        #endif
+
+        #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
             defined(BLINKER_PRO) || defined(BLINKER_AT_MQTT) || \
             defined(BLINKER_MQTT_AT) || defined(BLINKER_WIFI_GATEWAY) || \
             defined(BLINKER_PRO_SIM7020) || defined(BLINKER_PRO_AIR202) || \
@@ -497,12 +527,26 @@ class BlinkerApi : public BlinkerProtocol
                 { _AliGeniePowerStateFunc_m = newFunction; }
                 void attachAliGenieSetPowerState(blinker_callback_with_string_arg_t newFunction)
                 { _AliGeniePowerStateFunc = newFunction; }
+                void attachAliGenieSetHSwingState(blinker_callback_with_string_arg_t newFunction)
+                { _AliGenieHSwingStateFunc = newFunction; }
+                void attachAliGenieSetVSwingState(blinker_callback_with_string_arg_t newFunction)
+                { _AliGenieVSwingStateFunc = newFunction; }
                 void attachAliGenieSetColor(blinker_callback_with_string_arg_t newFunction)
                 { _AliGenieSetColorFunc = newFunction; }
                 void attachAliGenieSetMode(blinker_callback_with_string_arg_t newFunction)
                 { _AliGenieSetModeFunc = newFunction; }
                 void attachAliGenieSetcMode(blinker_callback_with_string_arg_t newFunction)
                 { _AliGenieSetcModeFunc = newFunction; }
+                void attachAliGenieSetLevel(blinker_callback_with_string_arg_t newFunction)
+                { _AliGenieSetLevelFunc_str = newFunction; }
+                void attachAliGenieSetLevel(blinker_callback_with_uint8_arg_t newFunction)
+                { _AliGenieSetLevelFunc = newFunction; }
+                void attachAliGenieRelativeLevel(blinker_callback_with_int32_arg_t newFunction)
+                { _AliGenieSetRelativeLevelFunc = newFunction; }
+                void attachAliGenieSetTemp(blinker_callback_with_uint8_arg_t newFunction)
+                { _AliGenieSetTempFunc = newFunction; }
+                void attachAliGenieRelativeTemp(blinker_callback_with_int32_arg_t newFunction)
+                { _AliGenieSetRelativeTempFunc = newFunction; }
                 void attachAliGenieSetBrightness(blinker_callback_with_string_arg_t newFunction)
                 { _AliGenieSetBrightnessFunc = newFunction; }
                 void attachAliGenieRelativeBrightness(blinker_callback_with_int32_arg_t newFunction)
@@ -528,14 +572,22 @@ class BlinkerApi : public BlinkerProtocol
                 { _DuerOSSetModeFunc = newFunction; }
                 void attachDuerOSSetcMode(blinker_callback_with_string_arg_t newFunction)
                 { _DuerOSSetcModeFunc = newFunction; }
+                void attachDuerOSSetLevel(blinker_callback_with_uint8_arg_t newFunction)
+                { _DuerOSSetLevelFunc = newFunction; }
+                void attachDuerOSRelativeLevel(blinker_callback_with_int32_arg_t newFunction)
+                { _DuerOSSetRelativeLevelFunc = newFunction; }
+                void attachDuerOSSetTemp(blinker_callback_with_uint8_arg_t newFunction)
+                { _DuerOSSetTempFunc = newFunction; }
+                void attachDuerOSRelativeTemp(blinker_callback_with_int32_arg_t newFunction)
+                { _DuerOSSetRelativeTempFunc = newFunction; }
                 void attachDuerOSSetBrightness(blinker_callback_with_string_arg_t newFunction)
                 { _DuerOSSetBrightnessFunc = newFunction; }
                 void attachDuerOSRelativeBrightness(blinker_callback_with_int32_arg_t newFunction)
                 { _DuerOSSetRelativeBrightnessFunc = newFunction; }
-                // void attachDuerOSSetColorTemperature(blinker_callback_with_int32_arg_t newFunction)
-                // { _DuerOSSetColorTemperature = newFunction; }
-                // void attachDuerOSRelativeColorTemperature(blinker_callback_with_int32_arg_t newFunction)
-                // { _DuerOSSetRelativeColorTemperature = newFunction; }
+                void attachDuerOSSetColorTemperature(blinker_callback_with_int32_arg_t newFunction)
+                { _DuerOSSetColorTemperature = newFunction; }
+                void attachDuerOSRelativeColorTemperature(blinker_callback_with_int32_arg_t newFunction)
+                { _DuerOSSetRelativeColorTemperature = newFunction; }
                 void attachDuerOSQuery(blinker_callback_with_int32_uint8_arg_t newFunction)
                 { _DuerOSQueryFunc_m = newFunction; }
                 void attachDuerOSQuery(blinker_callback_with_int32_arg_t newFunction)
@@ -547,10 +599,40 @@ class BlinkerApi : public BlinkerProtocol
                 { _MIOTPowerStateFunc_m = newFunction; }
                 void attachMIOTSetPowerState(blinker_callback_with_string_arg_t newFunction)
                 { _MIOTPowerStateFunc = newFunction; }
+                void attachMIOTSetHSwingState(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTHSwingStateFunc = newFunction; }
+                void attachMIOTSetVSwingState(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTVSwingStateFunc = newFunction; }
+                void attachMIOTSetECO(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTECOFunc = newFunction; }
+                void attachMIOTSetAnion(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTAnionFunc = newFunction; }
+                void attachMIOTSetHeater(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTHeaterFunc = newFunction; }
+                void attachMIOTSetDryer(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTDryerFunc = newFunction; }
+                void attachMIOTSetSleep(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTSleepFunc = newFunction; }
+                void attachMIOTSetSoft(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTSoftFunc = newFunction; }
+                void attachMIOTSetUV(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTUVFunc = newFunction; }
+                void attachMIOTSetUNSB(blinker_callback_with_string_arg_t newFunction)
+                { _MIOTUNSBFunc = newFunction; }
+                
+                void attachMIOTSetMode(blinker_callback_with_string_string_arg_t newFunction)
+                { _MIOTSetModeFunc_m = newFunction; }
+
                 void attachMIOTSetColor(blinker_callback_with_int32_arg_t newFunction)
                 { _MIOTSetColorFunc = newFunction; }
                 void attachMIOTSetMode(blinker_callback_with_uint8_arg_t newFunction)
                 { _MIOTSetModeFunc = newFunction; }
+                void attachMIOTSetLevel(blinker_callback_with_uint8_arg_t newFunction)
+                { _MIOTSetLevelFunc = newFunction; }
+                void attachMIOTSetTemp(blinker_callback_with_uint8_arg_t newFunction)
+                { _MIOTSetTempFunc = newFunction; }
+                void attachMIOTSetHumi(blinker_callback_with_uint8_arg_t newFunction)
+                { _MIOTSetHumiFunc = newFunction; }
                 // void attachMIOTSetcMode(blinker_callback_with_string_arg_t newFunction)
                 // { _MIOTSetcModeFunc = newFunction; }
                 void attachMIOTSetBrightness(blinker_callback_with_string_arg_t newFunction)
@@ -594,6 +676,20 @@ class BlinkerApi : public BlinkerProtocol
             // void initCheck(uint32_t timeout = BLINKER_STREAM_TIMEOUT*10);
         #endif
 
+        #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT)
+            void reset()
+            {
+                BLINKER_LOG(BLINKER_F("Blinker reset..."));
+                char config_check[3] = {0};
+                EEPROM.begin(BLINKER_EEP_SIZE);
+                EEPROM.put(BLINKER_EEP_ADDR_WLAN_CHECK, config_check);
+                EEPROM.commit();
+                EEPROM.end();
+
+                ESP.restart();
+            }
+        #endif
+
         #if defined(BLINKER_MQTT_AT)
             void initCheck(const String & _data, uint32_t timeout = BLINKER_STREAM_TIMEOUT*10);
             int analogRead();
@@ -615,9 +711,11 @@ class BlinkerApi : public BlinkerProtocol
             int8_t month()  { return atGetInt(BLINKER_CMD_MONTH); }
             int16_t year()  { return atGetInt(BLINKER_CMD_YEAR); }
             int16_t yday()  { return atGetInt(BLINKER_CMD_YDAY); }
-            void weather(const String & _city = BLINKER_CMD_DEFAULT);
-            void weatherForecast(const String & _city = BLINKER_CMD_DEFAULT);
-            void aqi(const String & _city = BLINKER_CMD_DEFAULT);
+            void weather(uint32_t _city = 0);
+            void weatherForecast(uint32_t _city = 0);
+            void air(uint32_t _city = 0);
+            void log(const String & msg);
+            void coordinate(float _long, float _lat);
             template<typename T>
             bool sms(const T& msg);
             void reset();
@@ -775,8 +873,8 @@ class BlinkerApi : public BlinkerProtocol
         #endif
 
         #if defined(BLINKER_PRO_ESP) || defined(BLINKER_WIFI_GATEWAY)
-            void esptouchInit() { BProto::smartConfigType(); }
-            void apConfigInit() { BProto::apConfigType(); }
+            void esptouchInit() { Bwlan.checkConfig(); BProto::smartConfigType(); }
+            void apConfigInit() { Bwlan.checkConfig(); BProto::apConfigType(); }
             b_config_t configType() { return BProto::checkIsSmartConfig() ? BLINKER_SMART_CONFIG : BLINKER_AP_CONFIG; }
         #endif
 
@@ -849,7 +947,14 @@ class BlinkerApi : public BlinkerProtocol
             uint32_t    _weatherTime = 0;
             uint32_t    _weather_forecast_Time = 0;
             uint32_t    _aqiTime = 0;
+            uint32_t    _logTime = 0;
+            uint32_t    _codTime = 0;
             uint8_t     data_dataCount = 0;
+            uint8_t     data_rtDataCount = 0;
+            uint8_t     data_rtKeyCount = 0;
+            uint8_t     data_rtTimes = 0;
+            time_t      data_rtTime = 0;
+            bool        data_rtRun = false;
             uint8_t     data_timeSlotDataCount = 0;
             uint32_t    time_timeSlotData = 0;
             uint8_t     _aCount = 0;
@@ -889,6 +994,7 @@ class BlinkerApi : public BlinkerProtocol
             #endif
 
             class BlinkerData *             _Data[BLINKER_MAX_BLINKER_DATA_SIZE];
+            // class BlinkerRTData *           _RTData[BLINKER_MAX_RTDATA_SIZE];
 
             class BlinkerTimeSlotData *     _TimeSlotData[BLINKER_MAX_BLINKER_DATA_SIZE];
 
@@ -979,6 +1085,16 @@ class BlinkerApi : public BlinkerProtocol
             uint32_t        _checkCrash = 0;
         #endif
 
+        #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
+            defined(BLINKER_PRO) || defined(BLINKER_PRO_ESP)
+            char                                _RTDataKey[BLINKER_MAX_RTDATA_SIZE][16];
+            uint8_t                             _RTKeyCount = 0;
+            blinker_callback_t                  _RTDataFunc = NULL;
+            uint8_t                             _RTTimesCount = 0;
+            Ticker                              _RTTicker;
+            uint8_t                            _RTTime = 1;
+        #endif
+
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || defined(BLINKER_AT_MQTT) ||\
             defined(BLINKER_MQTT_AT) || defined(BLINKER_WIFI_GATEWAY) || \
             defined(BLINKER_NBIOT_SIM7020) || defined(BLINKER_PRO_SIM7020) || \
@@ -988,11 +1104,19 @@ class BlinkerApi : public BlinkerProtocol
             defined(BLINKER_WIFI_SUBDEVICE) || defined(BLINKER_QRCODE_NBIOT_SIM7020) || \
             defined(BLINKER_NBIOT_SIM7000) || defined(BLINKER_QRCODE_NBIOT_SIM7000) || \
             defined(BLINKE_HTTP)
+
             blinker_callback_with_string_uint8_arg_t _AliGeniePowerStateFunc_m = NULL;
             blinker_callback_with_string_arg_t  _AliGeniePowerStateFunc = NULL;
+            blinker_callback_with_string_arg_t  _AliGenieHSwingStateFunc = NULL;
+            blinker_callback_with_string_arg_t  _AliGenieVSwingStateFunc = NULL;
             blinker_callback_with_string_arg_t  _AliGenieSetColorFunc = NULL;
             blinker_callback_with_string_arg_t  _AliGenieSetModeFunc = NULL;
             blinker_callback_with_string_arg_t  _AliGenieSetcModeFunc = NULL;
+            blinker_callback_with_string_arg_t  _AliGenieSetLevelFunc_str = NULL;
+            blinker_callback_with_uint8_arg_t   _AliGenieSetLevelFunc = NULL;
+            blinker_callback_with_uint8_arg_t   _AliGenieSetTempFunc = NULL;
+            blinker_callback_with_int32_arg_t   _AliGenieSetRelativeLevelFunc = NULL;
+            blinker_callback_with_int32_arg_t   _AliGenieSetRelativeTempFunc = NULL;
             blinker_callback_with_string_arg_t  _AliGenieSetBrightnessFunc = NULL;
             blinker_callback_with_int32_arg_t   _AliGenieSetRelativeBrightnessFunc = NULL;
             blinker_callback_with_int32_arg_t   _AliGenieSetColorTemperature = NULL;
@@ -1006,17 +1130,35 @@ class BlinkerApi : public BlinkerProtocol
             blinker_callback_with_int32_arg_t   _DuerOSSetColorFunc = NULL;
             blinker_callback_with_string_arg_t  _DuerOSSetModeFunc = NULL;
             blinker_callback_with_string_arg_t  _DuerOSSetcModeFunc = NULL;
+            blinker_callback_with_uint8_arg_t   _DuerOSSetLevelFunc = NULL;
+            blinker_callback_with_int32_arg_t   _DuerOSSetRelativeLevelFunc = NULL;
+            blinker_callback_with_uint8_arg_t   _DuerOSSetTempFunc = NULL;
+            blinker_callback_with_int32_arg_t   _DuerOSSetRelativeTempFunc = NULL;
             blinker_callback_with_string_arg_t  _DuerOSSetBrightnessFunc = NULL;
             blinker_callback_with_int32_arg_t   _DuerOSSetRelativeBrightnessFunc = NULL;
-            // blinker_callback_with_int32_arg_t   _DuerOSSetColorTemperature = NULL;
-            // blinker_callback_with_int32_arg_t   _DuerOSSetRelativeColorTemperature = NULL;
+            blinker_callback_with_int32_arg_t   _DuerOSSetColorTemperature = NULL;
+            blinker_callback_with_int32_arg_t   _DuerOSSetRelativeColorTemperature = NULL;
             blinker_callback_with_int32_uint8_arg_t _DuerOSQueryFunc_m = NULL;
             blinker_callback_with_int32_arg_t   _DuerOSQueryFunc = NULL;
 
             blinker_callback_with_string_uint8_arg_t _MIOTPowerStateFunc_m = NULL;
             blinker_callback_with_string_arg_t  _MIOTPowerStateFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTHSwingStateFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTVSwingStateFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTECOFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTAnionFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTHeaterFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTDryerFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTSleepFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTSoftFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTUVFunc = NULL;
+            blinker_callback_with_string_arg_t  _MIOTUNSBFunc = NULL;
             blinker_callback_with_int32_arg_t   _MIOTSetColorFunc = NULL;
+            blinker_callback_with_string_string_arg_t _MIOTSetModeFunc_m = NULL;
             blinker_callback_with_uint8_arg_t   _MIOTSetModeFunc = NULL;
+            blinker_callback_with_uint8_arg_t   _MIOTSetLevelFunc = NULL;
+            blinker_callback_with_uint8_arg_t   _MIOTSetTempFunc = NULL;
+            blinker_callback_with_uint8_arg_t   _MIOTSetHumiFunc = NULL;
             // blinker_callback_with_string_arg_t  _MIOTSetcModeFunc = NULL;
             blinker_callback_with_string_arg_t  _MIOTSetBrightnessFunc = NULL;
             // blinker_callback_with_int32_arg_t   _MIOTSetRelativeBrightnessFunc = NULL;
@@ -1059,6 +1201,11 @@ class BlinkerApi : public BlinkerProtocol
         blinker_callback_with_string_arg_t  _weather_forecast_Func = NULL;
         blinker_callback_with_string_arg_t  _configGetFunc = NULL;
         blinker_callback_with_string_arg_t  _dataGetFunc = NULL;
+        
+        #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
+            defined(BLINKER_PRO) || defined(BLINKER_PRO_ESP)
+            void rtParse(const JsonObject& data);
+        #endif
 
         void parse(char _data[], bool ex_data = false);
 
@@ -1177,6 +1324,16 @@ class BlinkerApi : public BlinkerProtocol
                             return BLINKER_CMD_FALSE;
                         }
                         break;
+                    case BLINKER_CMD_LOG_NUMBER :
+                        if (!checkLOG()) {
+                            return BLINKER_CMD_FALSE;
+                        }
+                        break;
+                    case BLINKER_CMD_COD_NUMBER :
+                        if (!checkCOD()) {
+                            return BLINKER_CMD_FALSE;
+                        }
+                        break;
                     case BLINKER_CMD_BRIDGE_NUMBER :
                         break;
                     case BLINKER_CMD_CONFIG_UPDATE_NUMBER :
@@ -1210,6 +1367,11 @@ class BlinkerApi : public BlinkerProtocol
                         // }
                         break;
                     case BLINKER_CMD_JSON_DATA_NUMBER :
+                        // if (!checkDataUpdata()) {
+                        //     return BLINKER_CMD_FALSE;
+                        // }
+                        break;
+                    case BLINKER_CMD_JSON_DATA_GET_NUMBER :
                         // if (!checkDataUpdata()) {
                         //     return BLINKER_CMD_FALSE;
                         // }
@@ -1276,8 +1438,8 @@ class BlinkerApi : public BlinkerProtocol
                     String host = BLINKER_F(BLINKER_SERVER_HTTPS);
                     const int httpsPort = 443;
                 #elif defined(BLINKER_LAN_DEBUG)
-                    String host = BLINKER_F("http://192.168.1.121:9090");
-                    const int httpsPort = 9090;
+                    String host = BLINKER_F("http://192.168.0.105:8887");
+                    const int httpsPort = 8887;
                 #endif
 
                 BlinkerHTTPAIR202 http(*stream, isHWS, listenFunc);
@@ -1335,6 +1497,22 @@ class BlinkerApi : public BlinkerProtocol
                         http.begin(host, url_iot);
 
                         httpCode = http.GET();
+                        break;
+                    case BLINKER_CMD_LOG_NUMBER :
+                        url_iot = BLINKER_F("/api/v1/user/device/cloud_storage/logs");
+
+                        http.begin(host, url_iot);
+
+                        // http.addHeader(conType, application);
+                        httpCode = http.POST(msg, conType, application);
+                        break;
+                    case BLINKER_CMD_COD_NUMBER :
+                        url_iot = BLINKER_F("/api/v1/user/device/cloud_storage/coordinate");
+
+                        http.begin(host, url_iot);
+
+                        // http.addHeader(conType, application);
+                        httpCode = http.POST(msg, conType, application);
                         break;
                     case BLINKER_CMD_BRIDGE_NUMBER :
                         url_iot = BLINKER_F("/api/v1/user/device");
@@ -1397,9 +1575,9 @@ class BlinkerApi : public BlinkerProtocol
 
                         url_iot = BLINKER_F("/api/v1/storage/ts ");
                         #ifndef BLINKER_WITHOUT_SSL
-                        http.begin("https://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #else
-                        http.begin("http://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #endif
                         // http.addHeader(conType, application);
                         httpCode = http.POST(msg, conType, application);
@@ -1416,9 +1594,9 @@ class BlinkerApi : public BlinkerProtocol
 
                         url_iot = BLINKER_F("/api/v1/storage/text ");
                         #ifndef BLINKER_WITHOUT_SSL
-                        http.begin("https://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #else
-                        http.begin("http://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #endif
                         // http.addHeader(conType, application);
                         httpCode = http.POST(msg, conType, application);
@@ -1433,14 +1611,27 @@ class BlinkerApi : public BlinkerProtocol
                         
                         // httpCode = http.GET();
 
-                        url_iot = BLINKER_F("/api/v1/storage/object ");
-                        #ifndef BLINKER_WITHOUT_SSL
-                        http.begin("https://storage.diandeng.tech", url_iot);
-                        #else
-                        http.begin("http://storage.diandeng.tech", url_iot);
-                        #endif
+                        // url_iot = BLINKER_F("/api/v1/storage/object");
+                        // #ifndef BLINKER_WITHOUT_SSL
+                        // http.begin("https://storage.diandeng.tech", url_iot);
+                        // #else
+                        // http.begin("http://storage.diandeng.tech", url_iot);
+                        // #endif
+
+                        url_iot = BLINKER_F("/api/v1/user/device/cloud_storage/object");
+
+                        http.begin(host, url_iot);
+
                         // http.addHeader(conType, application);
                         httpCode = http.POST(msg, conType, application);
+                        break;
+                    case BLINKER_CMD_JSON_DATA_GET_NUMBER :
+                        url_iot = BLINKER_F("/api/v1/user/device");
+                        url_iot += msg;
+
+                        http.begin(host, url_iot);
+
+                        httpCode = http.GET();
                         break;
                     case BLINKER_CMD_DATA_GET_NUMBER :
                         url_iot = BLINKER_F("/api/v1/user/device");
@@ -1643,6 +1834,12 @@ class BlinkerApi : public BlinkerProtocol
                             _aqiTime = millis();
                             if (_airFunc) _airFunc(payload);
                             break;
+                        case BLINKER_CMD_LOG_NUMBER :
+                            _logTime = millis();
+                            break;
+                        case BLINKER_CMD_COD_NUMBER :
+                            _codTime = millis();
+                            break;
                         case BLINKER_CMD_BRIDGE_NUMBER :
                             break;
                         case BLINKER_CMD_CONFIG_UPDATE_NUMBER :
@@ -1665,6 +1862,9 @@ class BlinkerApi : public BlinkerProtocol
                             _dUpdateTime = millis();
                             break;
                         case BLINKER_CMD_JSON_DATA_NUMBER :
+                            _dUpdateTime = millis();
+                            break;
+                        case BLINKER_CMD_JSON_DATA_GET_NUMBER :
                             _dUpdateTime = millis();
                             break;
                         case BLINKER_CMD_DATA_GET_NUMBER :
@@ -1810,6 +2010,16 @@ class BlinkerApi : public BlinkerProtocol
                             return BLINKER_CMD_FALSE;
                         }
                         break;
+                    case BLINKER_CMD_LOG_NUMBER :
+                        if (!checkLOG()) {
+                            return BLINKER_CMD_FALSE;
+                        }
+                        break;
+                    case BLINKER_CMD_COD_NUMBER :
+                        if (!checkCOD()) {
+                            return BLINKER_CMD_FALSE;
+                        }
+                        break;
                     case BLINKER_CMD_BRIDGE_NUMBER :
                         break;
                     case BLINKER_CMD_CONFIG_UPDATE_NUMBER :
@@ -1843,6 +2053,11 @@ class BlinkerApi : public BlinkerProtocol
                         // }
                         break;
                     case BLINKER_CMD_JSON_DATA_NUMBER :
+                        // if (!checkDataUpdata()) {
+                        //     return BLINKER_CMD_FALSE;
+                        // }
+                        break;
+                    case BLINKER_CMD_JSON_DATA_GET_NUMBER :
                         // if (!checkDataUpdata()) {
                         //     return BLINKER_CMD_FALSE;
                         // }
@@ -1892,8 +2107,8 @@ class BlinkerApi : public BlinkerProtocol
                     String host = BLINKER_F(BLINKER_SERVER_HTTPS);
                     const int httpsPort = 443;
                 #elif defined(BLINKER_LAN_DEBUG)
-                    String host = BLINKER_F("http://192.168.1.121:9090");
-                    const int httpsPort = 9090;
+                    String host = BLINKER_F("http://192.168.0.105:8887");
+                    const int httpsPort = 8887;
                 #endif
 
                 #if defined(BLINKER_NBIOT_SIM7020) || defined(BLINKER_PRO_SIM7020) || \
@@ -1945,7 +2160,7 @@ class BlinkerApi : public BlinkerProtocol
                         break;
                         // return BLINKER_CMD_FALSE;
                     case BLINKER_CMD_WEATHER_NUMBER :
-                        url_iot = BLINKER_F("/api/v2");
+                        url_iot = BLINKER_F("/api/v3");
                         url_iot += msg;
 
                         http.begin(host, url_iot);
@@ -1953,7 +2168,7 @@ class BlinkerApi : public BlinkerProtocol
                         httpCode = http.GET();
                         break;
                     case BLINKER_CMD_WEATHER_FORECAST_NUMBER :
-                        url_iot = BLINKER_F("/api/v2");
+                        url_iot = BLINKER_F("/api/v3");
                         url_iot += msg;
 
                         http.begin(host, url_iot);
@@ -1961,12 +2176,28 @@ class BlinkerApi : public BlinkerProtocol
                         httpCode = http.GET();
                         break;
                     case BLINKER_CMD_AQI_NUMBER :
-                        url_iot = BLINKER_F("/api/v2");
+                        url_iot = BLINKER_F("/api/v3");
                         url_iot += msg;
 
                         http.begin(host, url_iot);
 
                         httpCode = http.GET();
+                        break;
+                    case BLINKER_CMD_LOG_NUMBER :
+                        url_iot = BLINKER_F("/api/v1/user/device/cloud_storage/logs");
+
+                        http.begin(host, url_iot);
+
+                        // http.addHeader(conType, application);
+                        httpCode = http.POST(msg, conType, application);
+                        break;
+                    case BLINKER_CMD_COD_NUMBER :
+                        url_iot = BLINKER_F("/api/v1/user/device/cloud_storage/coordinate");
+
+                        http.begin(host, url_iot);
+
+                        // http.addHeader(conType, application);
+                        httpCode = http.POST(msg, conType, application);
                         break;
                     case BLINKER_CMD_BRIDGE_NUMBER :
                         url_iot = BLINKER_F("/api/v1/user/device");
@@ -2011,9 +2242,9 @@ class BlinkerApi : public BlinkerProtocol
                     case BLINKER_CMD_TIME_SLOT_DATA_NUMBER :
                         url_iot = BLINKER_F("/api/v1/storage/ts");
                         #ifndef BLINKER_WITHOUT_SSL
-                        http.begin("https://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #else
-                        http.begin("http://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #endif
                         // http.addHeader(conType, application);
                         httpCode = http.POST(msg, conType, application);
@@ -2021,9 +2252,9 @@ class BlinkerApi : public BlinkerProtocol
                     case BLINKER_CMD_TEXT_DATA_NUMBER :
                         url_iot = BLINKER_F("/api/v1/storage/text");
                         #ifndef BLINKER_WITHOUT_SSL
-                        http.begin("https://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #else
-                        http.begin("http://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #endif
                         // http.addHeader(conType, application);
                         httpCode = http.POST(msg, conType, application);
@@ -2031,9 +2262,9 @@ class BlinkerApi : public BlinkerProtocol
                     case BLINKER_CMD_JSON_DATA_NUMBER :
                         url_iot = BLINKER_F("/api/v1/storage/object");
                         #ifndef BLINKER_WITHOUT_SSL
-                        http.begin("https://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #else
-                        http.begin("http://storage.diandeng.tech", url_iot);
+                        http.begin(BLINKER_STORAGE_HTTPS, url_iot);
                         #endif
                         // http.addHeader(conType, application);
                         httpCode = http.POST(msg, conType, application);
@@ -2184,6 +2415,10 @@ class BlinkerApi : public BlinkerProtocol
                                 payload = data_rp[BLINKER_CMD_DETAIL].as<String>();
                             else if (_type == BLINKER_CMD_LOWPOWER_FREQ_GET_NUM)
                                 payload = data_rp[BLINKER_CMD_DETAIL][BLINKER_CMD_FREQ].as<String>();
+                            else if (_type == BLINKER_CMD_WEATHER_FORECAST_NUMBER || \
+                                    _type == BLINKER_CMD_WEATHER_NUMBER || \
+                                    _type == BLINKER_CMD_AQI_NUMBER)
+                                payload = data_rp[BLINKER_CMD_DETAIL].as<String>();
                             else
                                 payload = data_rp[BLINKER_CMD_DETAIL][BLINKER_CMD_DATA].as<String>();
                         }
@@ -2213,6 +2448,12 @@ class BlinkerApi : public BlinkerProtocol
                         case BLINKER_CMD_AQI_NUMBER :
                             _aqiTime = millis();
                             if (_airFunc) _airFunc(payload);
+                            break;
+                        case BLINKER_CMD_LOG_NUMBER :
+                            _logTime = millis();
+                            break;
+                        case BLINKER_CMD_COD_NUMBER :
+                            _codTime = millis();
                             break;
                         case BLINKER_CMD_BRIDGE_NUMBER :
                             break;
@@ -2341,6 +2582,8 @@ class BlinkerApi : public BlinkerProtocol
             bool checkWEATHER();
             bool checkWEATHERFORECAST();
             bool checkAQI();
+            bool checkLOG();
+            bool checkCOD();
             bool checkCUPDATE();
             bool checkCGET();
             bool checkCDEL();
@@ -2803,11 +3046,11 @@ void BlinkerApi::needInit()
 
         begin();
 
-        BLINKER_LOG(BLINKER_F(
+        BLINKER_LOG_ALL(BLINKER_F(
                     "\n==========================================================="
                     "\n================= Blinker PRO mode init ! ================="
-                    "\nWarning! EEPROM address 1280-1535 is used for PRO ESP Mode!"
-                    "\n============= DON'T USE THESE EEPROM ADDRESS! ============="
+                    "\n     EEPROM address 1280-1535 is used for PRO ESP Mode!"
+                    "\n========= PLEASE AVOID USING THESE EEPROM ADDRESS! ========"
                     "\n===========================================================\n"));
 
         // BLINKER_LOG(BLINKER_F("Already used: "), BLINKER_ONE_AUTO_DATA_SIZE);
@@ -3014,6 +3257,11 @@ void BlinkerApi::run()
                     }
                     else
                     {
+                        #if defined(BLINKER_WITHOUT_WS_REG)
+                            _getRegister = true;
+                            _isNew = true;
+                        #endif
+                        _register_fresh = millis();
                         _proStatus = PRO_DEV_AUTHCHECK_FAIL;
 
                         BLINKER_LOG_ALL(BLINKER_F("not auth, conn deviceRegister"));
@@ -3248,6 +3496,10 @@ void BlinkerApi::run()
                     }
                     else
                     {
+                        #if defined(BLINKER_WITHOUT_WS_REG)
+                            _getRegister = true;
+                            _isNew = true;
+                        #endif
                         _mqttAutoStatue = AUTO_DEV_AUTHCHECK_FAIL;
 
                         BLINKER_LOG_ALL(BLINKER_F("not auth, conn deviceRegister"));
@@ -3456,18 +3708,32 @@ void BlinkerApi::run()
                 ntpInit();
             }
 
-            if (WiFi.status() != WL_CONNECTED)
-            {
-                if ((millis() - _reconTime) >= 10000 || \
-                    _reconTime == 0 )
+            #if defined(BLINKER_WIFI_MULTI)
+                if (wifiMulti.run() != WL_CONNECTED)
                 {
-                    _reconTime = millis();
-                    BLINKER_LOG(BLINKER_F("WiFi disconnected! reconnecting!"));
-                    WiFi.reconnect();
-                }
+                    if ((millis() - _reconTime) >= 10000 || \
+                        _reconTime == 0 )
+                    {
+                        _reconTime = millis();
+                        BLINKER_LOG(BLINKER_F("WiFi disconnected! reconnecting!"));
+                    }
 
-                return;
-            }
+                    return;
+                }
+            #else
+                if (WiFi.status() != WL_CONNECTED)
+                {
+                    if ((millis() - _reconTime) >= 10000 || \
+                        _reconTime == 0 )
+                    {
+                        _reconTime = millis();
+                        BLINKER_LOG(BLINKER_F("WiFi disconnected! reconnecting!"));
+                        WiFi.reconnect();
+                    }
+
+                    return;
+                }
+            #endif
         #endif
 
         #if defined(BLINKER_NB73_NBIOT)
@@ -4410,6 +4676,142 @@ void BlinkerApi::run()
     // #endif
 }
 
+#if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
+    defined(BLINKER_PRO) || defined(BLINKER_PRO_ESP)
+void BlinkerApi::rtParse(const JsonObject& data)
+{
+    // data_rtKeyCount = 0;
+
+    // for (size_t i = 0; i < BLINKER_MAX_RTDATA_SIZE; i++)
+    // {
+    //     String get_key = data["rt"][i];
+
+    //     if (get_key != "null")
+    //     {
+    //         BLINKER_LOG_ALL(BLINKER_F("===>rt get_key: "), get_key);
+
+    //         for (size_t num = 0; num < data_rtDataCount; num++)
+    //         {
+    //             if (_RTData[num]->checkName(get_key.c_str()))
+    //             {
+    //                 strcpy(_RTDataKey[data_rtKeyCount], get_key.c_str());
+    //                 data_rtKeyCount++;
+    //             }
+    //         }
+    //     }
+    // }
+
+
+    data_rtKeyCount = 0;
+
+    if (data.containsKey("rt")) {
+
+        BLINKER_LOG_ALL(BLINKER_F("containsKey rt"));
+
+        for (size_t i = 0; i < BLINKER_MAX_RTDATA_SIZE; i++)
+        {
+            String get_key = data["rt"][i];
+
+            if (get_key != "null")
+            {
+                BLINKER_LOG_ALL(BLINKER_F("===>rt get_key: "), get_key);
+
+                // for (size_t num = 0; num < data_rtDataCount; num++)
+                // {
+                //     if (_RTData[num]->checkName(get_key.c_str()))
+                //     {
+                //         strcpy(_RTDataKey[data_rtKeyCount], get_key.c_str());
+                        data_rtKeyCount++;
+                //     }
+                // }
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    BLINKER_LOG_ALL("data_rtKeyCount: ",data_rtKeyCount);
+
+    // String rt_data_str = "";
+
+    // bool is_print = false;
+
+    // for (size_t data_num = 0; data_num < BLINKER_MAX_RTDATA_DATA_SIZE; data_num++)
+    // {
+    //     rt_data_str = "{";
+
+    //     for (size_t key_num = 0; key_num < data_rtDataCount; key_num++)
+    //     {
+    //         for (size_t num = 0; num < data_rtKeyCount; num++)
+    //         {
+    //             BLINKER_LOG_ALL("_RTDataKey: ",_RTDataKey[num]);
+
+    //             if (_RTData[key_num]->checkName(_RTDataKey[num]))
+    //             {
+    //                 is_print = _RTData[key_num]->available();
+    //                 rt_data_str += _RTData[key_num]->getData();
+    //             }
+    //         }
+
+    //         if (key_num + 1 < data_rtDataCount)
+    //         {
+    //             rt_data_str += ",";
+    //         }
+    //     }
+
+    //     rt_data_str += "}";\
+
+    //     if (is_print)
+    //     {
+    //         BLINKER_LOG_ALL(BLINKER_F("===>RTData: "), rt_data_str);
+    //         BProto::checkState(false);
+    //         printJson(rt_data_str);
+    //         // BProto::printNow();
+    //     }
+    // }
+
+    // for (size_t key_num = 0; key_num < data_rtDataCount; key_num++)
+    // {
+    //     _RTData[key_num]->flush();
+    // }
+    
+    
+    // String get_key = data["rt"][0];
+    // BLINKER_LOG_ALL(BLINKER_F("_RTDataKey: "), _RTDataKey);
+    // BLINKER_LOG_ALL(BLINKER_F("rt get_key: "), get_key);
+    // BLINKER_LOG_ALL(BLINKER_F("strncmp: "), strncmp(_RTDataKey, get_key.c_str(), strlen(_RTDataKey)) == 0);
+    if (data_rtKeyCount)
+    {
+        // data_rtTime = millis();
+        
+        // if (_RTDataFunc && data_rtRun == false)
+        // {
+        //     data_rtRun = true;
+            _RTTicker.once(_RTTime, _RTDataFunc);
+
+            data_rtTimes = 0;
+
+            _fresh = true;
+
+        BLINKER_LOG_ALL("========data_rtRun");
+        // }
+    }
+    // else
+    // {
+    //     if (data_rtRun)
+    //     {
+    //         if (millis() - data_rtTime > 11000UL)
+    //         {
+    //             _RTTicker.detach();
+    //             data_rtRun = false;
+    //         }
+    //     }
+    // }
+}
+#endif
+
 void BlinkerApi::parse(char _data[], bool ex_data)
 {
     BLINKER_LOG_ALL(BLINKER_F("parse data: "), _data);
@@ -4457,12 +4859,21 @@ void BlinkerApi::parse(char _data[], bool ex_data)
                     shareParse(root);
                 #endif
 
+                #if defined(BLINKER_WIFI) || defined(BLINKER_MQTT) || \
+                    defined(BLINKER_PRO)
+
+                #endif
+
                 #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
                     defined(BLINKER_AT_MQTT) || defined(BLINKER_WIFI_GATEWAY) || \
                     defined(BLINKER_MQTT_AUTO) || defined(BLINKER_PRO_ESP) || \
                     defined(BLINKER_WIFI_SUBDEVICE) || defined(BLINKE_HTTP)
                     shareParse(root);
                     autoManager(root);
+                    
+                    #if !defined(BLINKER_AT_MQTT)
+                    rtParse(root);
+                    #endif
                     #if !defined(BLINKER_WIFI_SUBDEVICE)
                     otaParse(root);
                     numParse(root);
@@ -4620,6 +5031,11 @@ void BlinkerApi::print()
     // free(_sendBuf);
     // autoFormat = false;
     BProto::print(_msg);
+}
+
+void BlinkerApi::printJson(const String &s)
+{
+    BProto::print(s);
 }
 
 template <typename T>
@@ -5724,54 +6140,54 @@ float BlinkerApi::gps(b_gps_t axis)
         }
     }
 
-    template<typename T>
-    bool BlinkerApi::sms(const T& msg)
-    {
-        String _msg = STRING_format(msg);
+    // template<typename T>
+    // bool BlinkerApi::sms(const T& msg)
+    // {
+    //     String _msg = STRING_format(msg);
 
-        #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
-            defined(BLINKER_AT_MQTT) || defined(BLINKER_WIFI_GATEWAY) || \
-            defined(BLINKER_NBIOT_SIM7020) || defined(BLINKER_GPRS_AIR202) || \
-            defined(BLINKER_PRO_SIM7020) || defined(BLINKER_PRO_AIR202) || \
-            defined(BLINKER_MQTT_AUTO) || defined(BLINKER_PRO_ESP) || \
-            defined(BLINKER_LOWPOWER_AIR202) || defined(BLINKER_QRCODE_NBIOT_SIM7020) || \
-            defined(BLINKER_NBIOT_SIM7000) || defined(BLINKER_QRCODE_NBIOT_SIM7000) || \
-            defined(BLINKE_HTTP)
-            String data = BLINKER_F("{\"deviceName\":\"");
-            data += BProto::deviceName();
-            data += BLINKER_F("\",\"key\":\"");
-            data += BProto::authKey();
-            data += BLINKER_F("\",\"msg\":\"");
-            data += _msg;
-            data += BLINKER_F("\"}");
-        #elif defined(BLINKER_WIFI)
-            String data = BLINKER_F("{\"deviceName\":\"");
-            data += macDeviceName();
-            data += BLINKER_F("\",\"msg\":\"");
-            data += _msg;
-            data += BLINKER_F("\"}");
-        #elif defined(BLINKER_WIFI_SUBDEVICE)
-            String data = BLINKER_F("{\"sms\":\"");
-            data += _msg;
-            data += BLINKER_F("\"}");
-        #endif
+    //     #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
+    //         defined(BLINKER_AT_MQTT) || defined(BLINKER_WIFI_GATEWAY) || \
+    //         defined(BLINKER_NBIOT_SIM7020) || defined(BLINKER_GPRS_AIR202) || \
+    //         defined(BLINKER_PRO_SIM7020) || defined(BLINKER_PRO_AIR202) || \
+    //         defined(BLINKER_MQTT_AUTO) || defined(BLINKER_PRO_ESP) || \
+    //         defined(BLINKER_LOWPOWER_AIR202) || defined(BLINKER_QRCODE_NBIOT_SIM7020) || \
+    //         defined(BLINKER_NBIOT_SIM7000) || defined(BLINKER_QRCODE_NBIOT_SIM7000) || \
+    //         defined(BLINKE_HTTP)
+    //         String data = BLINKER_F("{\"deviceName\":\"");
+    //         data += BProto::deviceName();
+    //         data += BLINKER_F("\",\"key\":\"");
+    //         data += BProto::authKey();
+    //         data += BLINKER_F("\",\"msg\":\"");
+    //         data += _msg;
+    //         data += BLINKER_F("\"}");
+    //     #elif defined(BLINKER_WIFI)
+    //         String data = BLINKER_F("{\"deviceName\":\"");
+    //         data += macDeviceName();
+    //         data += BLINKER_F("\",\"msg\":\"");
+    //         data += _msg;
+    //         data += BLINKER_F("\"}");
+    //     #elif defined(BLINKER_WIFI_SUBDEVICE)
+    //         String data = BLINKER_F("{\"sms\":\"");
+    //         data += _msg;
+    //         data += BLINKER_F("\"}");
+    //     #endif
 
-        if (_msg.length() > 20) {
-            return false;
-        }
+    //     if (_msg.length() > 20) {
+    //         return false;
+    //     }
 
-        #if defined(BLINKER_WIFI_SUBDEVICE)
-            if (!checkSMS()) return false;
-            _smsTime = millis();
+    //     #if defined(BLINKER_WIFI_SUBDEVICE)
+    //         if (!checkSMS()) return false;
+    //         _smsTime = millis();
             
-            return BProto::subPrint(data);
-        #else
-            return blinkerServer(BLINKER_CMD_SMS_NUMBER, data) != "false";
-        #endif
-    }
+    //         return BProto::subPrint(data);
+    //     #else
+    //         return blinkerServer(BLINKER_CMD_SMS_NUMBER, data) != "false";
+    //     #endif
+    // }
 
     template<typename T>
-    bool BlinkerApi::sms(const T& msg, const char* cel)
+    bool BlinkerApi::sms(const T& msg, const String & cel)
     {
         String _msg = STRING_format(msg);
 
@@ -5822,7 +6238,7 @@ float BlinkerApi::gps(b_gps_t axis)
     }
 
     template<typename T>
-    bool BlinkerApi::push(const T& msg)
+    bool BlinkerApi::push(const T& msg, const String & users)
     {
         String _msg = STRING_format(msg);
 
@@ -5840,12 +6256,16 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BProto::authKey();
             data += BLINKER_F("\",\"msg\":\"");
             data += _msg;
+            data += BLINKER_F("\",\"receivers\":\"");
+            data += users;
             data += BLINKER_F("\"}");
         #elif defined(BLINKER_WIFI)
             String data = BLINKER_F("{\"deviceName\":\"");
             data += macDeviceName();
             data += BLINKER_F("\",\"msg\":\"");
             data += _msg;
+            data += BLINKER_F("\",\"receivers\":\"");
+            data += users;
             data += BLINKER_F("\"}");
         #elif defined(BLINKER_WIFI_SUBDEVICE)
             String data = BLINKER_F("{\"push\":\"");
@@ -5904,7 +6324,7 @@ float BlinkerApi::gps(b_gps_t axis)
     }
 
     template<typename T>
-    bool BlinkerApi::wechat(const String & title, const String & state, const T& msg)
+    bool BlinkerApi::wechat(const String & title, const String & state, const T& msg, const String & users)
     {
         String _msg = STRING_format(msg);
 
@@ -5926,6 +6346,8 @@ float BlinkerApi::gps(b_gps_t axis)
             data += state;
             data += BLINKER_F("\",\"msg\":\"");
             data += _msg;
+            data += BLINKER_F("\",\"receivers\":\"");
+            data += users;
             data += BLINKER_F("\"}");
         #elif defined(BLINKER_WIFI)
             String data = BLINKER_F("{\"deviceName\":\"");
@@ -5936,6 +6358,8 @@ float BlinkerApi::gps(b_gps_t axis)
             data += state;
             data += BLINKER_F("\",\"msg\":\"");
             data += _msg;
+            data += BLINKER_F("\",\"receivers\":\"");
+            data += users;
             data += BLINKER_F("\"}");
         #elif defined(BLINKER_WIFI_SUBDEVICE)
             String data = BLINKER_F("{\"wechat\":\"");
@@ -5957,17 +6381,15 @@ float BlinkerApi::gps(b_gps_t axis)
     }
 
     #if !defined(BLINKER_AT_MQTT)
-    void BlinkerApi::weather(const String & _city)
+    void BlinkerApi::weather(uint32_t _city)
     {
-        String data = BLINKER_F("/weather/");
+        String data = BLINKER_F("/weather?");
 
-        if (_city != BLINKER_CMD_DEFAULT)
+        if (_city != 0)
         {
-            data += _city;
-            data += BLINKER_F("?");
-        }
-        else {
-            data += BLINKER_F("sichuan-chengdushi?");
+            data += BLINKER_F("code=");
+            data += STRING_format(_city);
+            data += BLINKER_F("&");
         }
 
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -5980,7 +6402,7 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BLINKER_F("device=");
             data += BProto::deviceName();
             data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            data += BProto::token();
         #elif defined(BLINKER_WIFI)
             data += BLINKER_F("deviceName=");
             data += macDeviceName();
@@ -6007,17 +6429,15 @@ float BlinkerApi::gps(b_gps_t axis)
         #endif
     }
 
-    void BlinkerApi::weatherForecast(const String & _city)
+    void BlinkerApi::weatherForecast(uint32_t _city)
     {
-        String data = BLINKER_F("/forecast/");
+        String data = BLINKER_F("/forecast?");
 
-        if (_city != BLINKER_CMD_DEFAULT)
+        if (_city != 0)
         {
-            data += _city;
-            data += BLINKER_F("?");
-        }
-        else {
-            data += BLINKER_F("sichuan-chengdushi?");
+            data += BLINKER_F("code=");
+            data += STRING_format(_city);
+            data += BLINKER_F("&");
         }
 
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -6031,7 +6451,7 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BLINKER_F("device=");
             data += BProto::deviceName();
             data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            data += BProto::token();
         #elif defined(BLINKER_WIFI)
             data += BLINKER_F("deviceName=");
             data += macDeviceName();
@@ -6058,17 +6478,15 @@ float BlinkerApi::gps(b_gps_t axis)
         #endif
     }
 
-    void BlinkerApi::aqi(const String & _city)
+    void BlinkerApi::air(uint32_t _city)
     {
-        String data = BLINKER_F("/air/");
+        String data = BLINKER_F("/air?");
 
-        if (_city != BLINKER_CMD_DEFAULT)
+        if (_city != 0)
         {
-            data += _city;
-            data += BLINKER_F("?");
-        }
-        else {
-            data += BLINKER_F("sichuan-chengdushi?");
+            data += BLINKER_F("code=");
+            data += STRING_format(_city);
+            data += BLINKER_F("&");
         }
 
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -6082,7 +6500,7 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BLINKER_F("device=");
             data += BProto::deviceName();
             data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            data += BProto::token();
         #elif defined(BLINKER_WIFI)
             data += BLINKER_F("deviceName=");
             data += macDeviceName();
@@ -6108,18 +6526,47 @@ float BlinkerApi::gps(b_gps_t axis)
             blinkerServer(BLINKER_CMD_AQI_NUMBER, data);
         #endif
     }
-    #else
-    String BlinkerApi::weather(const String & _city)
-    {
-        String data = BLINKER_F("/weather/");
 
-        if (_city != BLINKER_CMD_DEFAULT)
+    void BlinkerApi::log(const String & msg)
+    {
+        String data = BLINKER_F("{\"token\":\"");
+        data += BProto::token();
+        data += BLINKER_F("\",\"device\":\"");
+        data += BProto::deviceName();
+        data += BLINKER_F("\",\"data\":[[");
+        data += STRING_format(time());
+        data += BLINKER_F(",\"");
+        data += msg;
+        data += BLINKER_F("\"]]}");
+
+        blinkerServer(BLINKER_CMD_LOG_NUMBER, data);
+    }
+
+    void BlinkerApi::coordinate(float _long, float _lat)
+    {
+        String data = BLINKER_F("{\"token\":\"");
+        data += BProto::token();
+        data += BLINKER_F("\",\"data\":[[");
+        data += STRING_format(time());
+        data += BLINKER_F(",[");
+        data += STRING_format(_long);
+        data += BLINKER_F(",");
+        data += STRING_format(_lat);
+        data += BLINKER_F("]]]}");
+
+        blinkerServer(BLINKER_CMD_COD_NUMBER, data);
+    }
+
+    #else
+    String BlinkerApi::weather(uint32_t _city)
+    {
+        String data = BLINKER_F("/weather?");
+
+        if (_city != 0)
         {
-            data += _city;
-            data += BLINKER_F("?");
-        }
-        else {
-            data += BLINKER_F("sichuan-chengdushi?");
+            data += BLINKER_F("code=");
+            data += STRING_format(_city);
+            data += BLINKER_F("&");
         }
 
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -6133,7 +6580,7 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BLINKER_F("device=");
             data += BProto::deviceName();
             data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            data += BProto::token();
         #elif defined(BLINKER_WIFI)
             data += BLINKER_F("device=");
             data += macDeviceName();
@@ -6161,17 +6608,15 @@ float BlinkerApi::gps(b_gps_t axis)
     }
 
     
-    String BlinkerApi::weatherForecast(const String & _city)
+    String BlinkerApi::weatherForecast(uint32_t _city)
     {
-        String data = BLINKER_F("/forecast/");
+        String data = BLINKER_F("/forecast?");
 
-        if (_city != BLINKER_CMD_DEFAULT)
+        if (_city != 0)
         {
-            data += _city;
-            data += BLINKER_F("?");
-        }
-        else {
-            data += BLINKER_F("sichuan-chengdushi?");
+            data += BLINKER_F("code=");
+            data += STRING_format(_city);
+            data += BLINKER_F("&");
         }
 
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -6185,7 +6630,7 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BLINKER_F("device=");
             data += BProto::deviceName();
             data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            data += BProto::token();
         #elif defined(BLINKER_WIFI)
             data += BLINKER_F("device=");
             data += macDeviceName();
@@ -6212,17 +6657,15 @@ float BlinkerApi::gps(b_gps_t axis)
         #endif
     }
 
-    String BlinkerApi::aqi(const String & _city)
+    String BlinkerApi::air(uint32_t _city)
     {
-        String data = BLINKER_F("/air/");
+        String data = BLINKER_F("/air?");
 
-        if (_city != BLINKER_CMD_DEFAULT)
+        if (_city != 0)
         {
-            data += _city;
-            data += BLINKER_F("?");
-        }
-        else {
-            data += BLINKER_F("sichuan-chengdushi?");
+            data += BLINKER_F("code=");
+            data += STRING_format(_city);
+            data += BLINKER_F("&");
         }
 
         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -6236,7 +6679,7 @@ float BlinkerApi::gps(b_gps_t axis)
             data += BLINKER_F("device=");
             data += BProto::deviceName();
             data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            data += BProto::token();
         #elif defined(BLINKER_WIFI)
             data += BLINKER_F("device=");
             data += macDeviceName();
@@ -6262,6 +6705,35 @@ float BlinkerApi::gps(b_gps_t axis)
             return blinkerServer(BLINKER_CMD_AQI_NUMBER, data);
         #endif
     }
+
+    void BlinkerApi::log(const String & msg)
+    {
+        String data = BLINKER_F("{\"token\":\"");
+        data += BProto::token();
+        data += BLINKER_F("\",\"data\":[[");
+        data += STRING_format(time());
+        data += BLINKER_F(",");
+        data += msg;
+        data += BLINKER_F("]]}");
+
+        blinkerServer(BLINKER_CMD_LOG_NUMBER, data);
+    }
+
+    void BlinkerApi::coordinate(float _long, float _lat)
+    {
+        String data = BLINKER_F("{\"token\":\"");
+        data += BProto::token();
+        data += BLINKER_F("\",\"data\":[[");
+        data += STRING_format(time());
+        data += BLINKER_F(",[");
+        data += STRING_format(_long);
+        data += BLINKER_F(",");
+        data += STRING_format(_lat);
+        data += BLINKER_F("]]]}");
+
+        blinkerServer(BLINKER_CMD_COD_NUMBER, data);
+    }
+
     #endif
 
     bool BlinkerApi::deviceHeartbeat(uint32_t heart_time)
@@ -6367,8 +6839,8 @@ float BlinkerApi::gps(b_gps_t axis)
         BLINKER_LOG(BLINKER_F(
             "\n==========================================================="
             "\n================== Blinker Timer loaded! =================="
-            "\nWarning!EEPROM address 1536-2431 is used for Blinker Timer!"
-            "\n============= DON'T USE THESE EEPROM ADDRESS! ============="
+            "\n     EEPROM address 1536-2431 is used for Blinker Timer!"
+            "\n========= PLEASE AVOID USING THESE EEPROM ADDRESS! ========"
             "\n===========================================================\n"));
 
         checkTimerErase();
@@ -6425,13 +6897,11 @@ float BlinkerApi::gps(b_gps_t axis)
         String _msg = STRING_format(msg);
 
         #if !defined(BLINKER_WIFI_SUBDEVICE)
-            String data = BLINKER_F("{\"deviceName\":\"");
-            data += BProto::deviceName();
-            data += BLINKER_F("\",\"key\":\"");
-            data += BProto::authKey();
-            data += BLINKER_F("\",\"config\":\"");
+            String data = BLINKER_F("{\"token\":\"");
+            data += BProto::token();
+            data += BLINKER_F("\",\"data\":");
             data += _msg;
-            data += BLINKER_F("\"}");
+            data += BLINKER_F("}");
 
             if (_msg.length() > 256) return false;
 
@@ -6452,10 +6922,8 @@ float BlinkerApi::gps(b_gps_t axis)
     void BlinkerApi::configGet()
     {
         #if !defined(BLINKER_WIFI_SUBDEVICE)
-            String data = BLINKER_F("/pull_userconfig?deviceName=");
-            data += BProto::deviceName();
-            data += BLINKER_F("&key=");
-            data += BProto::authKey();
+            String data = BLINKER_F("/cloud_storage/object?token=");
+            data += BProto::token();
 
             blinkerServer(BLINKER_CMD_CONFIG_GET_NUMBER, data);
         #else
@@ -6542,9 +7010,121 @@ float BlinkerApi::gps(b_gps_t axis)
             BLINKER_LOG_ALL(_name, BLINKER_F(" save: "), _msg, BLINKER_F(" time: "), now_time);
             BLINKER_LOG_ALL(BLINKER_F("data_dataCount: "), data_dataCount);
         }
+    }
+
+    #if !defined(BLINKER_AT_MQTT)
+    template<typename T>
+    void BlinkerApi::sendRtData(char _name[], const T& msg)
+    {
+        // String _msg = STRING_format(msg);
+
+
+
+        // ============================================
+
+
+
+        String _data_ = "{\"date\":";
+        _data_ += String(time());
+        _data_ += ",\"val\":";
+        _data_ += String(msg);
+        _data_ += "}";
+
+        BProto::checkState(false);
+        printObject(_name, _data_);
+        // BProto::printNow();
+
+
+        // ============================================
+
+
+
+
+        // int8_t num = checkNum(_name, _RTData, data_rtDataCount);
+
+        // time_t _time = time();
+
+        // if (1600000000 > time()) return;
+        // // uint8_t _second = second();
+        // time_t now_time = _time;// - _second;
+
+        // // BLINKER_LOG_ALL(BLINKER_F("time: "), _time, BLINKER_F(",second: "), _second);
+
+        // BLINKER_LOG_ALL(BLINKER_F("now_time: "), now_time);
+
+        // // now_time = now_time - now_time % 10;
+
+        // BLINKER_LOG_ALL(BLINKER_F("dataStorage num: "), num, BLINKER_F(" ,"), now_time);
+        // BLINKER_LOG_ALL(BLINKER_F("dataStorage count: "), data_rtDataCount);
+
+        // // String data_msg = String(msg);
+
+        // // if (data_msg.length() > 10) return;
+
+        // if( num == BLINKER_OBJECT_NOT_AVAIL )
+        // {
+        //     if (data_rtDataCount >= BLINKER_MAX_RTDATA_SIZE)
+        //     {
+        //         return;
+        //     }
+        //     _RTData[data_rtDataCount] = new BlinkerRTData();
+        //     _RTData[data_rtDataCount]->name(_name);
+        //     // _RTData[data_rtDataCount]->saveData(time(), _msg);
+        //     // if
+        //     _RTData[data_rtDataCount]->saveData(msg, now_time);
+        //     data_rtDataCount++;
+        //     // {
+        //     //     dataUpdate();
+        //     // }
+
+        //     BLINKER_LOG_ALL(_name, BLINKER_F(" save: "), msg, BLINKER_F(" time: "), now_time);
+        //     BLINKER_LOG_ALL(BLINKER_F("data_rtDataCount: "), data_rtDataCount);
+        // }
+        // else {
+        //     // _RTData[num]->saveData(time(), _msg);
+        //     // if
+        //     _RTData[num]->saveData(msg, now_time);
+        //     // {
+        //     //     dataUpdate();
+        //     // }
+
+        //     BLINKER_LOG_ALL(_name, BLINKER_F(" save: "), msg, BLINKER_F(" time: "), now_time);
+        //     BLINKER_LOG_ALL(BLINKER_F("data_rtDataCount: "), data_rtDataCount);
+        // }
 
 
     }
+
+    void BlinkerApi::printRtData()
+    {
+        // String data = "{\"rt\":{";
+
+        // for (uint8_t _num = 0; _num < data_rtDataCount; _num++) {
+        //     data += BLINKER_F("\"");
+        //     data += _RTData[_num]->getName();
+        //     data += BLINKER_F("\":");
+        //     data += _RTData[_num]->getData();
+        //     if (_num < data_rtDataCount - 1) {
+        //         data += BLINKER_F(",");
+        //     }
+
+        //     BLINKER_LOG_ALL(BLINKER_F("num: "), _num, \
+        //             BLINKER_F(" name: "), _RTData[_num]->getName());
+
+        //     BLINKER_LOG_FreeHeap_ALL();
+        // }
+
+        // data += BLINKER_F("}}");
+
+        // printObject(_RTDataKey, data);
+        
+        _RTTicker.once(_RTTime, _RTDataFunc);
+
+        data_rtTimes++;
+
+        if (data_rtTimes <= 9) BProto::printNow();
+    }
+    #endif
 
 
     void BlinkerApi::timeSlotData(char _name[], int32_t _data)
@@ -6765,6 +7345,15 @@ float BlinkerApi::gps(b_gps_t axis)
         #else
             // return true;
         #endif
+    }
+
+
+    void BlinkerApi::jsonDataGet()
+    {
+        String data = BLINKER_F("/cloud_storage/object?token=");
+            data += BProto::token();
+
+        blinkerServer(BLINKER_CMD_JSON_DATA_GET_NUMBER, data);
     }
 
 
@@ -8096,6 +8685,8 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
         void BlinkerApi::bridgeParse(char _bName[], uint8_t num, const JsonObject& data)
         {
             BLINKER_LOG_ALL(BLINKER_F("_bridgeCount: "), _bridgeCount);
+            
+            BLINKER_LOG_ALL(BLINKER_F("data: "), _bridgeCount);
 
             // int8_t num = checkNum(_bName, _Bridge, _bridgeCount);
 
@@ -8108,10 +8699,8 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
 
             String _name = data[BLINKER_CMD_FROMDEVICE].as<String>();
 
-            BLINKER_LOG_ALL(BLINKER_F("bridgeParse from: "), _name);
-
             // if (data.containsKey(_bName))
-            if (strcmp(_name.c_str(), _bName) == 0)
+            if (strncmp(_name.c_str(), _bName, _name.length()) == 0)
             {
                 String state = data[BLINKER_CMD_DATA];//[_bName];
 
@@ -8642,8 +9231,8 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
         {
             BLINKER_LOG(BLINKER_F("======================================================="));
             BLINKER_LOG(BLINKER_F("=========== Blinker Auto Control mode init! ==========="));
-            BLINKER_LOG(BLINKER_F("Warning!EEPROM address 0-1279 is used for Auto Control!"));
-            BLINKER_LOG(BLINKER_F("=========== DON'T USE THESE EEPROM ADDRESS! ==========="));
+            BLINKER_LOG(BLINKER_F("     EEPROM address 0-1279 is used for Auto Control!"));
+            BLINKER_LOG(BLINKER_F("======= PLEASE AVOID USING THESE EEPROM ADDRESS! ======"));
             BLINKER_LOG(BLINKER_F("======================================================="));
 
             // BLINKER_LOG(BLINKER_F("Already used: "), BLINKER_ONE_AUTO_DATA_SIZE);
@@ -10286,6 +10875,25 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
         else return false;
     }
 
+
+    bool BlinkerApi::checkLOG()
+    {
+        if (!checkServerLimit()) return false;
+
+        if ((millis() - _logTime) >= BLINKER_LOG_MSG_LIMIT || \
+            _logTime == 0) return true;
+        else return false;
+    }
+
+    bool BlinkerApi::checkCOD()
+    {
+        if (!checkServerLimit()) return false;
+
+        if ((millis() - _codTime) >= BLINKER_COD_MSG_LIMIT || \
+            _codTime == 0) return true;
+        else return false;
+    }
+
     bool BlinkerApi::checkCUPDATE()
     {
         if ((millis() - _cUpdateTime) >= BLINKER_CONFIG_UPDATE_LIMIT || \
@@ -10378,6 +10986,8 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
         !defined(BLINKER_NBIOT_SIM7000) && !defined(BLINKER_QRCODE_NBIOT_SIM7000))
         void BlinkerApi::autoStart()
         {
+            // autoPull();
+
             BLINKER_LOG_ALL(BLINKER_F("_______autoStart_______"));
             uint8_t checkData;
 
@@ -11033,6 +11643,16 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     return BLINKER_CMD_FALSE;
                 }
                 break;
+            case BLINKER_CMD_LOG_NUMBER :
+                if (!checkLOG()) {
+                    return BLINKER_CMD_FALSE;
+                }
+                break;
+            case BLINKER_CMD_COD_NUMBER :
+                if (!checkCOD()) {
+                    return BLINKER_CMD_FALSE;
+                }
+                break;
             case BLINKER_CMD_BRIDGE_NUMBER :
                 break;
             #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -11070,6 +11690,11 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     // }
                     break;
                 case BLINKER_CMD_JSON_DATA_NUMBER :
+                    // if (!checkDataUpdata()) {
+                    //     return BLINKER_CMD_FALSE;
+                    // }
+                    break;
+                case BLINKER_CMD_JSON_DATA_GET_NUMBER :
                     // if (!checkDataUpdata()) {
                     //     return BLINKER_CMD_FALSE;
                     // }
@@ -11433,7 +12058,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
             #ifndef BLINKER_LAN_DEBUG
                 String host = BLINKER_F(BLINKER_SERVER_HTTPS);
             #elif defined(BLINKER_LAN_DEBUG)
-                String host = BLINKER_F("http://192.168.1.121:9090");
+                String host = BLINKER_F("http://192.168.0.105:8887");
             #endif
 
             // const char* ca =
@@ -11551,7 +12176,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     // return BLINKER_CMD_FALSE;
                 case BLINKER_CMD_WEATHER_NUMBER :
                     url_iot = host;
-                    url_iot += BLINKER_F("/api/v2");
+                    url_iot += BLINKER_F("/api/v3");
                     url_iot += msg;
 
                     #if defined(ESP8266)
@@ -11568,7 +12193,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     break;
                 case BLINKER_CMD_WEATHER_FORECAST_NUMBER :
                     url_iot = host;
-                    url_iot += BLINKER_F("/api/v2");
+                    url_iot += BLINKER_F("/api/v3");
                     url_iot += msg;
 
                     #if defined(ESP8266)
@@ -11585,7 +12210,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     break;
                 case BLINKER_CMD_AQI_NUMBER :
                     url_iot = host;
-                    url_iot += BLINKER_F("/api/v2");
+                    url_iot += BLINKER_F("/api/v3");
                     url_iot += msg;
 
                     #if defined(ESP8266)
@@ -11599,6 +12224,40 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     #endif
 
                     httpCode = http.GET();
+                    break;
+                case BLINKER_CMD_LOG_NUMBER :
+                    url_iot = host;
+                    url_iot += BLINKER_F("/api/v1/user/device/cloud_storage/logs");
+
+                    #if defined(ESP8266)
+                        #ifndef BLINKER_WITHOUT_SSL
+                        http.begin(*client_s, url_iot);
+                        #else
+                        http.begin(client_s, url_iot);
+                        #endif
+                    #else
+                        http.begin(url_iot);
+                    #endif
+
+                    http.addHeader(conType, application);
+                    httpCode = http.POST(msg);
+                    break;
+                case BLINKER_CMD_COD_NUMBER :
+                    url_iot = host;
+                    url_iot += BLINKER_F("/api/v1/user/device/cloud_storage/coordinate");
+
+                    #if defined(ESP8266)
+                        #ifndef BLINKER_WITHOUT_SSL
+                        http.begin(*client_s, url_iot);
+                        #else
+                        http.begin(client_s, url_iot);
+                        #endif
+                    #else
+                        http.begin(url_iot);
+                    #endif
+
+                    http.addHeader(conType, application);
+                    httpCode = http.POST(msg);
                     break;
                 case BLINKER_CMD_BRIDGE_NUMBER :
                     url_iot = host;
@@ -11623,7 +12282,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     defined(BLINKE_HTTP)
                     case BLINKER_CMD_CONFIG_UPDATE_NUMBER :
                         url_iot = host;
-                        url_iot += BLINKER_F("/api/v1/user/device/userconfig");
+                        url_iot += BLINKER_F("/api/v1/user/device/cloud_storage/object");
 
                         #if defined(ESP8266)
                             #ifndef BLINKER_WITHOUT_SSL
@@ -11692,10 +12351,16 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     case BLINKER_CMD_TIME_SLOT_DATA_NUMBER :
                         // url_iot = host;
                         #ifndef BLINKER_WITHOUT_SSL
-                            url_iot = BLINKER_F("https://storage.diandeng.tech/api/v1/storage/ts");
+                            url_iot = BLINKER_STORAGE_HTTPS;
+                            url_iot += BLINKER_F("/api/v1/storage/ts");
                         #else
-                            url_iot = BLINKER_F("http://storage.diandeng.tech/api/v1/storage/ts");
+                            url_iot = BLINKER_STORAGE_HTTPS;
+                            url_iot += BLINKER_F("/api/v1/storage/ts");
                         #endif
+
+                        
+                        // url_iot = host;
+                        // url_iot += BLINKER_F("/api/v1/user/device/cloud_storage/object");
 
                         #if defined(ESP8266)
                             #ifndef BLINKER_WITHOUT_SSL
@@ -11713,9 +12378,11 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     case BLINKER_CMD_TEXT_DATA_NUMBER :
                         // url_iot = host;
                         #ifndef BLINKER_WITHOUT_SSL
-                            url_iot = BLINKER_F("https://storage.diandeng.tech/api/v1/storage/text");
+                            url_iot = BLINKER_STORAGE_HTTPS;
+                            url_iot += BLINKER_F("/api/v1/storage/tt");
                         #else
-                            url_iot = BLINKER_F("http://storage.diandeng.tech/api/v1/storage/text");
+                            url_iot = BLINKER_STORAGE_HTTPS;
+                            url_iot += BLINKER_F("/api/v1/storage/tt");
                         #endif
 
                         #if defined(ESP8266)
@@ -11734,9 +12401,11 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                     case BLINKER_CMD_JSON_DATA_NUMBER :
                         // url_iot = host;
                         #ifndef BLINKER_WITHOUT_SSL
-                            url_iot = BLINKER_F("https://storage.diandeng.tech/api/v1/storage/object");
+                            url_iot = BLINKER_STORAGE_HTTPS;
+                            url_iot += BLINKER_F("/api/v1/storage/ot");
                         #else
-                            url_iot = BLINKER_F("http://storage.diandeng.tech/api/v1/storage/object");
+                            url_iot = BLINKER_STORAGE_HTTPS;
+                            url_iot += BLINKER_F("/api/v1/storage/ot");
                         #endif
 
                         #if defined(ESP8266)
@@ -12054,7 +12723,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
 
                     // DynamicJsonBuffer jsonBuffer;
                     // JsonObject& data_rp = jsonBuffer.parseObject(payload);
-                    DynamicJsonDocument jsonBuffer(1024);
+                    DynamicJsonDocument jsonBuffer(2048);
                     DeserializationError error = deserializeJson(jsonBuffer, payload);
                     JsonObject data_rp = jsonBuffer.as<JsonObject>();
 
@@ -12069,6 +12738,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                         }
                         else
                         {
+                            BLINKER_LOG_ALL(BLINKER_F("_type: "), _type);
                             // String _payload = data_rp[BLINKER_CMD_DETAIL][BLINKER_CMD_DATA];
                             // payload = _payload;
 
@@ -12078,6 +12748,11 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                                 payload = data_rp[BLINKER_CMD_DETAIL].as<String>();
                             else if (_type == BLINKER_CMD_LOWPOWER_FREQ_GET_NUM)
                                 payload = data_rp[BLINKER_CMD_DETAIL][BLINKER_CMD_FREQ].as<String>();
+                            else if (_type == BLINKER_CMD_WEATHER_FORECAST_NUMBER || \
+                                    _type == BLINKER_CMD_WEATHER_NUMBER || \
+                                    _type == BLINKER_CMD_AQI_NUMBER || \
+                                    _type == BLINKER_CMD_CONFIG_GET_NUMBER)
+                                payload = data_rp[BLINKER_CMD_DETAIL].as<String>();
                             else
                                 payload = data_rp[BLINKER_CMD_DETAIL][BLINKER_CMD_DATA].as<String>();
                         }
@@ -12108,6 +12783,12 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                             _aqiTime = millis();
                             if (_airFunc) _airFunc(payload);
                             break;
+                        case BLINKER_CMD_LOG_NUMBER :
+                            _logTime = millis();
+                            break;
+                        case BLINKER_CMD_COD_NUMBER :
+                            _codTime = millis();
+                            break;
                         case BLINKER_CMD_BRIDGE_NUMBER :
                             break;
                         #if defined(BLINKER_MQTT) || defined(BLINKER_PRO) || \
@@ -12135,6 +12816,9 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                                 break;
                             case BLINKER_CMD_JSON_DATA_NUMBER :
                                 _dUpdateTime = millis();
+                                break;
+                            case BLINKER_CMD_JSON_DATA_GET_NUMBER :
+                                // _dUpdateTime = millis();
                                 break;
                             case BLINKER_CMD_DATA_GET_NUMBER :
                                 _dGetTime = millis();
@@ -12302,6 +12986,16 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 if (_AliGeniePowerStateFunc) _AliGeniePowerStateFunc(setValue);
                 if (_AliGeniePowerStateFunc_m) _AliGeniePowerStateFunc_m(setValue, setNum);
             }
+            else if (rootSet.containsKey(BLINKER_CMD_HSTATE)) {
+                String setValue = rootSet[BLINKER_CMD_HSTATE];
+
+                if (_AliGenieHSwingStateFunc) _AliGenieHSwingStateFunc(setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_VSTATE)) {
+                String setValue = rootSet[BLINKER_CMD_VSTATE];
+
+                if (_AliGenieVSwingStateFunc) _AliGenieVSwingStateFunc(setValue);
+            }
             else if (rootSet.containsKey(BLINKER_CMD_COLOR)) {
                 String setValue = rootSet[BLINKER_CMD_COLOR];
 
@@ -12351,6 +13045,37 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 String setcMode = rootSet[BLINKER_CMD_CANCELMODE];
 
                 if (_AliGenieSetcModeFunc) _AliGenieSetcModeFunc(setcMode);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL)) {
+                String setLevel = rootSet[BLINKER_CMD_LEVEL];
+
+                if (_AliGenieSetLevelFunc_str) _AliGenieSetLevelFunc_str(setLevel);
+                if (_AliGenieSetLevelFunc) _AliGenieSetLevelFunc(setLevel.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP)) {
+                String setValue = rootSet[BLINKER_CMD_TEMP];
+
+                if (_AliGenieSetTempFunc) _AliGenieSetTempFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL_UP)) {
+                String setValue = rootSet[BLINKER_CMD_LEVEL_UP];
+
+                if (_AliGenieSetRelativeLevelFunc) _AliGenieSetRelativeLevelFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL_DW)) {
+                String setValue = rootSet[BLINKER_CMD_LEVEL_DW];
+
+                if (_AliGenieSetRelativeLevelFunc) _AliGenieSetRelativeLevelFunc(- setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP_UP)) {
+                String setValue = rootSet[BLINKER_CMD_TEMP_UP];
+
+                if (_AliGenieSetRelativeTempFunc) _AliGenieSetRelativeTempFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP_DW)) {
+                String setValue = rootSet[BLINKER_CMD_TEMP_DW];
+
+                if (_AliGenieSetRelativeTempFunc) _AliGenieSetRelativeTempFunc(- setValue.toInt());
             }
         }
     }
@@ -12463,21 +13188,21 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
 
                 if (_DuerOSSetRelativeBrightnessFunc) _DuerOSSetRelativeBrightnessFunc(- setValue.toInt());
             }
-            // else if (rootSet.containsKey(BLINKER_CMD_COLORTEMP)) {
-            //     String setValue = rootSet[BLINKER_CMD_COLORTEMP];
+            else if (rootSet.containsKey(BLINKER_CMD_COLORTEMP)) {
+                String setValue = rootSet[BLINKER_CMD_COLORTEMP];
 
-            //     if (_DuerOSSetColorTemperature) _DuerOSSetColorTemperature(setValue.toInt());
-            // }
-            // else if (rootSet.containsKey(BLINKER_CMD_UPCOLORTEMP)) {
-            //     String setValue = rootSet[BLINKER_CMD_UPCOLORTEMP];
+                if (_DuerOSSetColorTemperature) _DuerOSSetColorTemperature(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_UPCOLORTEMP)) {
+                String setValue = rootSet[BLINKER_CMD_UPCOLORTEMP];
 
-            //     if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(setValue.toInt());
-            // }
-            // else if (rootSet.containsKey(BLINKER_CMD_DOWNCOLORTEMP)) {
-            //     String setValue = rootSet[BLINKER_CMD_DOWNCOLORTEMP];
+                if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_DOWNCOLORTEMP)) {
+                String setValue = rootSet[BLINKER_CMD_DOWNCOLORTEMP];
 
-            //     if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(- setValue.toInt());
-            // }
+                if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(- setValue.toInt());
+            }
             else if (rootSet.containsKey(BLINKER_CMD_MODE)) {
                 String setMode = rootSet[BLINKER_CMD_MODE];
 
@@ -12487,6 +13212,36 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 String setcMode = rootSet[BLINKER_CMD_CANCELMODE];
 
                 if (_DuerOSSetcModeFunc) _DuerOSSetcModeFunc(setcMode);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL)) {
+                String setValue = rootSet[BLINKER_CMD_LEVEL];
+
+                if (_DuerOSSetLevelFunc) _DuerOSSetLevelFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL_UP)) {
+                String setValue = rootSet[BLINKER_CMD_LEVEL_UP];
+
+                if (_DuerOSSetRelativeLevelFunc) _DuerOSSetRelativeLevelFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL_DW)) {
+                String setValue = rootSet[BLINKER_CMD_LEVEL_DW];
+
+                if (_DuerOSSetRelativeLevelFunc) _DuerOSSetRelativeLevelFunc(-setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP)) {
+                String setValue = rootSet[BLINKER_CMD_TEMP];
+
+                if (_DuerOSSetTempFunc) _DuerOSSetTempFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP_UP)) {
+                String setValue = rootSet[BLINKER_CMD_TEMP_UP];
+
+                if (_DuerOSSetRelativeTempFunc) _DuerOSSetRelativeTempFunc(setValue.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP_DW)) {
+                String setValue = rootSet[BLINKER_CMD_TEMP_DW];
+
+                if (_DuerOSSetRelativeTempFunc) _DuerOSSetRelativeTempFunc(-setValue.toInt());
             }
         }
     }
@@ -12524,7 +13279,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 if (_MIOTQueryFunc) _MIOTQueryFunc(BLINKER_CMD_QUERY_ALL_NUMBER);
                 if (_MIOTQueryFunc_m) _MIOTQueryFunc_m(BLINKER_CMD_QUERY_ALL_NUMBER, setNum);
             }
-            else if (value == BLINKER_CMD_POWERSTATE) {
+            else if (value == BLINKER_CMD_POWERSTATE1) {
                 uint8_t setNum = root[BLINKER_CMD_NUM];
                 if (_MIOTQueryFunc) _MIOTQueryFunc(BLINKER_CMD_QUERY_POWERSTATE_NUMBER);
                 if (_MIOTQueryFunc_m) _MIOTQueryFunc_m(BLINKER_CMD_QUERY_POWERSTATE_NUMBER, setNum);
@@ -12572,15 +13327,103 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
 
             // BLINKER_LOG_ALL("Json parse success");
 
-            if (rootSet.containsKey(BLINKER_CMD_POWERSTATE)) {
-                String setValue = rootSet[BLINKER_CMD_POWERSTATE];
+            if (rootSet.containsKey(BLINKER_CMD_POWERSTATE1)) {
+                String setValue = rootSet[BLINKER_CMD_POWERSTATE1];
                 uint8_t setNum = rootSet[BLINKER_CMD_NUM];
 
-                if (setValue == "true") setValue = "on";
-                else setValue = "off";                
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
 
                 if (_MIOTPowerStateFunc) _MIOTPowerStateFunc(setValue);
                 if (_MIOTPowerStateFunc_m) _MIOTPowerStateFunc_m(setValue, setNum);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_HSTATE)) {
+                String setValue = rootSet[BLINKER_CMD_HSTATE];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                if (_MIOTHSwingStateFunc) _MIOTHSwingStateFunc(setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_VSTATE)) {
+                String setValue = rootSet[BLINKER_CMD_VSTATE];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                if (_MIOTVSwingStateFunc) _MIOTVSwingStateFunc(setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_ECO)) {
+                String setValue = rootSet[BLINKER_CMD_ECO];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTECOFunc) _MIOTECOFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_ECO, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_ANION)) {
+                String setValue = rootSet[BLINKER_CMD_ANION];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTAnionFunc) _MIOTAnionFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_ECO, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_HEATER)) {
+                String setValue = rootSet[BLINKER_CMD_HEATER];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTHeaterFunc) _MIOTHeaterFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_HEATER, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_DRYER)) {
+                String setValue = rootSet[BLINKER_CMD_DRYER];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTDryerFunc) _MIOTDryerFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_DRYER, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_SLEEP)) {
+                String setValue = rootSet[BLINKER_CMD_SLEEP];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTSleepFunc) _MIOTSleepFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_SLEEP, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_SOFT)) {
+                String setValue = rootSet[BLINKER_CMD_SOFT];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTSoftFunc) _MIOTSoftFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_SOFT, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_UV)) {
+                String setValue = rootSet[BLINKER_CMD_UV];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTUVFunc) _MIOTUVFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_UV, setValue);
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_UNSB)) {
+                String setValue = rootSet[BLINKER_CMD_UNSB];
+
+                // if (setValue == "true") setValue = "on";
+                // else setValue = "off";                
+
+                // if (_MIOTUNSBFunc) _MIOTUNSBFunc(setValue);
+                if (_MIOTSetModeFunc_m) _MIOTSetModeFunc_m(BLINKER_CMD_UNSB, setValue);
             }
             else if (rootSet.containsKey(BLINKER_CMD_COLOR)) {
                 String setValue = rootSet[BLINKER_CMD_COLOR];
@@ -12626,6 +13469,21 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 String setMode = rootSet[BLINKER_CMD_MODE];
 
                 if (_MIOTSetModeFunc) _MIOTSetModeFunc(setMode.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_LEVEL)) {
+                String setLevel = rootSet[BLINKER_CMD_LEVEL];
+
+                if (_MIOTSetLevelFunc) _MIOTSetLevelFunc(setLevel.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_TEMP)) {
+                String setTemp = rootSet[BLINKER_CMD_TEMP];
+
+                if (_MIOTSetTempFunc) _MIOTSetTempFunc(setTemp.toInt());
+            }
+            else if (rootSet.containsKey(BLINKER_CMD_HUMI)) {
+                String setHumi = rootSet[BLINKER_CMD_HUMI];
+
+                if (_MIOTSetHumiFunc) _MIOTSetHumiFunc(setHumi.toInt());
             }
             // else if (rootSet.containsKey(BLINKER_CMD_CANCELMODE)) {
             //     String setcMode = rootSet[BLINKER_CMD_CANCELMODE];
@@ -12808,18 +13666,18 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 {
                     if (_DuerOSSetRelativeBrightnessFunc) _DuerOSSetRelativeBrightnessFunc(- value.toInt());
                 }
-                // else if (STRING_find_string_value(_data, value, BLINKER_CMD_COLORTEMP))
-                // {
-                //     if (_DuerOSSetColorTemperature) _DuerOSSetColorTemperature(value.toInt());
-                // }
-                // else if (STRING_find_string_value(_data, value, BLINKER_CMD_UPCOLORTEMP))
-                // {
-                //     if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(value.toInt());
-                // }
-                // else if (STRING_find_string_value(_data, value, BLINKER_CMD_DOWNCOLORTEMP))
-                // {
-                //     if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(- value.toInt());
-                // }
+                else if (STRING_find_string_value(_data, value, BLINKER_CMD_COLORTEMP))
+                {
+                    if (_DuerOSSetColorTemperature) _DuerOSSetColorTemperature(value.toInt());
+                }
+                else if (STRING_find_string_value(_data, value, BLINKER_CMD_UPCOLORTEMP))
+                {
+                    if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(value.toInt());
+                }
+                else if (STRING_find_string_value(_data, value, BLINKER_CMD_DOWNCOLORTEMP))
+                {
+                    if (_DuerOSSetRelativeColorTemperature) _DuerOSSetRelativeColorTemperature(- value.toInt());
+                }
                 else if (STRING_find_string_value(_data, value, BLINKER_CMD_MODE))
                 {
                     if (_DuerOSSetModeFunc) _DuerOSSetModeFunc(value);
@@ -12927,6 +13785,18 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
                 else if (STRING_find_string_value(_data, value, BLINKER_CMD_MODE))
                 {
                     if (_MIOTSetModeFunc) _MIOTSetModeFunc(value.toInt());
+                }
+                else if (STRING_find_string_value(_data, value, BLINKER_CMD_LEVEL))
+                {
+                    if (_MIOTSetLevelFunc) _MIOTSetLevelFunc(value.toInt());
+                }
+                else if (STRING_find_string_value(_data, value, BLINKER_CMD_TEMP))
+                {
+                    if (_MIOTSetTempFunc) _MIOTSetTempFunc(value.toInt());
+                }
+                else if (STRING_find_string_value(_data, value, BLINKER_CMD_HUMI))
+                {
+                    if (_MIOTSetHumiFunc) _MIOTSetHumiFunc(value.toInt());
                 }
                 // else if (STRING_find_string_value(_data, value, BLINKER_CMD_CANCELMODE))
                 // {
@@ -13683,7 +14553,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
             reqData = BLINKER_F("+");
             reqData += BLINKER_CMD_WEATHER_AT;
             reqData += BLINKER_F(":");
-            reqData += STRING_format(weather(_slaverAT->getParam(0)));
+            reqData += STRING_format(weather(_slaverAT->getParam(0).toInt()));
 
             BProto::serialPrint(reqData);
             BProto::serialPrint(BLINKER_CMD_OK);
@@ -13694,7 +14564,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
             reqData = BLINKER_F("+");
             reqData += BLINKER_CMD_AQI_AT;
             reqData += BLINKER_F(":");
-            reqData += STRING_format(aqi(_slaverAT->getParam(0)));
+            reqData += STRING_format(air(_slaverAT->getParam(0).toInt()));
 
             BProto::serialPrint(reqData);
             BProto::serialPrint(BLINKER_CMD_OK);
@@ -14129,7 +14999,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
     }
 
 
-    void BlinkerApi::weather(const String & _city)
+    void BlinkerApi::weather(uint32_t _city)
     {
         if (_weatherFunc)
         {
@@ -14138,7 +15008,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
     }
 
 
-    void BlinkerApi::weatherForecast(const String & _city)
+    void BlinkerApi::weatherForecast(uint32_t _city)
     {
         if (_weather_forecast_Func)
         {
@@ -14147,7 +15017,7 @@ char * BlinkerApi::widgetName_tab(uint8_t num)
     }
 
 
-    void BlinkerApi::aqi(const String & _city)
+    void BlinkerApi::air(uint32_t _city)
     {
         if (_airFunc)
         {

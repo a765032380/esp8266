@@ -134,6 +134,7 @@ void ConnectServer() {
         gllWifiSmartConfig();
   }
   digitalWrite(LED, LOW);
+  
 }
 
 bool WiFiWatchDog(){

@@ -4,7 +4,6 @@
 #include <PubSubClient.h>
 #include <PubSubClientTools.h>
 #include <ArduinoJson.h>
-#include <Servo.h>
 
 #include <Thread.h>             // https://github.com/ivanseidel/ArduinoThread
 #include <ThreadController.h>
@@ -15,6 +14,7 @@
 #include <airkiss.h>
 
 #include "gllwifi.h"
+#include "gllServo.h"
 // #include "gllblinker.h"
 
 #define MQTT_SERVER "gll.pub"
@@ -31,22 +31,9 @@ const String s = "";
 
 const String testtopic = "lottopic_zyf";
 
-Servo servo_16;   //舵机输出口 GIPO16
 bool oState = false;
 bool oSubscribe = false;
 
-
-void write(int start,int end){
-    Serial.println(s + "start:"+ start + "end:" + end);
-    servo_16.write(start);  //舵机旋转角度 具体参数需要结合自身情况修改
-    delay(1);           //给一个小延时
-    delay(1000);   //舵机动作后延时一会回到初始位置
-    servo_16.write(end); //设置该角度方便手动开关灯 就是开完灯舵机归位、
-}
-
-void writeEnd(int end){
-    servo_16.write(end); //设置该角度方便手动开关灯 就是开完灯舵机归位
-}
 
 void json(String message){
   StaticJsonDocument<200> doc;
@@ -131,7 +118,7 @@ void setup() {
   thread.setInterval(3000);
   threadControl.add(&thread);
 
-  servo_16.attach(16);
+  attach(16);
   // setupBlinker(_gllWifiConfig.SSID.c_str(),_gllWifiConfig.Passwd.c_str());
 }
 

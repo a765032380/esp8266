@@ -1,54 +1,52 @@
-/*
- * @Descripttion: 
- * @version: 
- * @Author: sueRimn
- * @Date: 2022-01-20 19:50:32
- * @LastEditors: sueRimn
- * @LastEditTime: 2022-01-21 09:57:46
- */
-#include <stdint.h>
-#include "espconn.h"
+#include <WiFiUdp.h>
+#include <ESP8266WiFi.h>
 
-#include "mem.h"
-struct espconn user_udp_espconn;
-static os_timer_t test_timer;
+unsigned int localUdpPort = 1234;  // 自定义本地监听端口
+unsigned int remoteUdpPort = 4321;  // 自定义远程监听端口
+char incomingPacket[255];  // 保存Udp工具发过来的消息
+char  replyPacket[] = "Hi, this is esp8266\n";  //发送的消息,仅支持英文
+WiFiUDP Udp;//实例化WiFiUDP对象
 
-sint8 espconn_send(struct espconn *espconn,uint8 *psent,uint16 length);
-
-void ICACHE_FLASH_ATTR user_udp_recv_cb(void *arg,char *pdata,unsigned short len){
- os_printf("udp have received data:%s\r\n",pdata);
-}
-void ICACHE_FLASH_ATTR user_udp_send(void){
-         uint8 hwaddr[6];
-         char DeviceBuffer[40]={0};
-         wifi_get_macaddr(STATION_IF,hwaddr);
-        //  os_sprintf(DeviceBuffer,"DEVICE MAC ADDRESS IS:"MACSTR"!!\r\nESP8266 IOT!\r\n",MAC2STR(hwaddr));
-         espconn_send(&user_udp_espconn,(uint8 *)DeviceBuffer,os_strlen(DeviceBuffer));
-
+void gll_udp_begin(){
+    if(Udp.begin(localUdpPort)){//启动Udp监听服务
+    Serial.println("监听成功");
+    //打印本地的ip地址，在UDP工具中会使用到
+    //WiFi.localIP().toString().c_str()用于将获取的本地IP地址转化为字符串    
+    Serial.printf("现在收听IP：%s, UDP端口：%d\n", WiFi.localIP().toString().c_str(), localUdpPort);
+  }else{
+    Serial.println("监听失败");
+  }
 }
 
-void ICACHE_FLASH_ATTR user_udp_sent_cb(void *arg){
-         os_printf("SEND SUCCESS!\r\n");
-         os_timer_disarm(&test_timer);
-         os_timer_setfn(&test_timer,(os_timer_func_t *)user_udp_send,0);
-         os_timer_arm(&test_timer,1000,0);
-}
-void user_upd_init(){
-    user_udp_espconn.type=ESPCONN_UDP; //设置为UDP通信
-    //开辟UDP参数需要的空间
-    user_udp_espconn.proto.udp=(esp_udp *)os_zalloc(sizeof(esp_udp));
-    //设置本地端口和远程端口
-    user_udp_espconn.proto.udp->local_port=2525;
-    user_udp_espconn.proto.udp->remote_port=1024;
-    //设置远程IP
-    const char udp_remote_ip[4]={255,255,255,255};
-    os_memcpy(user_udp_espconn.proto.udp->remote_ip,udp_remote_ip,4);
-    //设置发送完成和接收完成的回调函数
-    espconn_regist_recvcb(&user_udp_espconn,user_udp_recv_cb);
-    espconn_regist_sentcb(&user_udp_espconn,user_udp_sent_cb);
-    //使UDP参数生效
-    espconn_create(&user_udp_espconn);
-    //UDP发送函数
-    user_udp_send();
+void gll_udp_loop(){
+    //解析Udp数据包
+  int packetSize = Udp.parsePacket();//获得解析包
+  if (packetSize)//解析包不为空
+  {
+    //收到Udp数据包
+    //Udp.remoteIP().toString().c_str()用于将获取的远端IP地址转化为字符串
+    Serial.printf("收到来自远程IP：%s（远程端口：%d）的数据包字节数：%d\n", Udp.remoteIP().toString().c_str(), Udp.remotePort(), packetSize);
+      
+    // 读取Udp数据包并存放在incomingPacket
+    int len = Udp.read(incomingPacket, 255);//返回数据包字节数
+    if (len > 0)
+    { 
+      incomingPacket[len] = 0;//清空缓存
+    }
+    //向串口打印信息
+    Serial.printf("UDP数据包内容为: %s\n", incomingPacket);
+
+    //向udp工具发送消息
+    Udp.beginPacket(Udp.remoteIP(), remoteUdpPort);//配置远端ip地址和端口
+    Udp.write(replyPacket);//把数据写入发送缓冲区
+    Udp.endPacket();//发送数据
+  }
 }
 
+
+void gll_udp_send(char packet[]){
+    //向udp工具发送消息
+    Udp.beginPacket(Udp.remoteIP(), remoteUdpPort);//配置远端ip地址和端口
+    Udp.write(packet);//把数据写入发送缓冲区
+    Udp.endPacket();//发送数据
+}

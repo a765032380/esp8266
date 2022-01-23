@@ -1,6 +1,5 @@
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 
-#include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <PubSubClientTools.h>
 #include <ArduinoJson.h>
@@ -9,12 +8,13 @@
 #include <ThreadController.h>
 #include "LittleFS.h"
 #include <ESP8266WiFi.h>
-#include <ArduinoJson.h>
-#include "LittleFS.h"
 #include <airkiss.h>
 
 #include "gllwifi.h"
 #include "gllServo.h"
+#include "gllUDP.h"
+
+
 // #include "gllblinker.h"
 
 #define MQTT_SERVER "gll.pub"
@@ -29,7 +29,8 @@ Thread thread = Thread();
 int value = 0;
 const String s = "";
 
-const String testtopic = "lottopic_zyf";
+const char* client_id = "ESP8266Client_GLL"; 
+const String testtopic = "lottopic_gll";
 
 bool oState = false;
 bool oSubscribe = false;
@@ -70,12 +71,13 @@ void topic_subscriber(String topic, String message) {
   json(message);
 }
 void publisher() {
+  // user_udp_send();
   if (pubSubclient.state() != MQTT_CONNECTED){
-    if (pubSubclient.connect("ESP8266Client")) {
+    if (pubSubclient.connect(client_id)) {
         Serial.println("mqtt connect success");
         if (!oSubscribe)
         {
-          mqtt.subscribe("lottopic_zyf/#",topic_subscriber);
+          mqtt.subscribe(testtopic+"/#",topic_subscriber);
           oSubscribe = true;
         }
         
@@ -96,7 +98,7 @@ void setup() {
 
   //Connect WIFI
   ConnectServer();
-  
+  WiFi.mode(WIFI_STA);
   Serial.print("IP Address:");
   Serial.println(WiFi.localIP());
 
@@ -105,9 +107,9 @@ void setup() {
 
   // Connect to MQTT
   Serial.print(s + "Connecting to MQTT: " + MQTT_SERVER + " ... ");
-  if (pubSubclient.connect("ESP8266Client")) {
+  if (pubSubclient.connect(client_id)) {
     Serial.println("connected");
-    mqtt.subscribe("lottopic_zyf/#",topic_subscriber);
+    mqtt.subscribe(testtopic+"/#",topic_subscriber);
     Serial.println("mqtt connect success");
   } else {
     Serial.println(s + "failed, rc=" + pubSubclient.state());
@@ -115,10 +117,10 @@ void setup() {
 
   // Enable Thread
   thread.onRun(publisher);
-  thread.setInterval(3000);
+  thread.setInterval(1000);
   threadControl.add(&thread);
-
   attach(16);
+  gll_udp_begin();
   // setupBlinker(_gllWifiConfig.SSID.c_str(),_gllWifiConfig.Passwd.c_str());
 }
 
@@ -127,6 +129,8 @@ void loop() {
   // 把你的主代码放在这里，重复运行:
   pubSubclient.loop();
   threadControl.run();
+  gll_udp_loop();
+
   // runBlinker();
 
 }

@@ -1,11 +1,14 @@
 #include <WiFiUdp.h>
 #include <ESP8266WiFi.h>
+#include "gllJSON.h"
+#include "gllOTA.h"
 
 unsigned int localUdpPort = 1234;  // 自定义本地监听端口
 unsigned int remoteUdpPort = 4321;  // 自定义远程监听端口
 char incomingPacket[255];  // 保存Udp工具发过来的消息
 char  replyPacket[] = "Hi, this is esp8266\n";  //发送的消息,仅支持英文
 WiFiUDP Udp;//实例化WiFiUDP对象
+
 
 void gll_udp_begin(){
     if(Udp.begin(localUdpPort)){//启动Udp监听服务
@@ -35,6 +38,10 @@ void gll_udp_loop(){
     }
     //向串口打印信息
     Serial.printf("UDP数据包内容为: %s\n", incomingPacket);
+    String str = incomingPacket;
+    ota_update();
+    json(str);
+
 
     //向udp工具发送消息
     Udp.beginPacket(Udp.remoteIP(), remoteUdpPort);//配置远端ip地址和端口
@@ -47,6 +54,6 @@ void gll_udp_loop(){
 void gll_udp_send(char packet[]){
     //向udp工具发送消息
     Udp.beginPacket(Udp.remoteIP(), remoteUdpPort);//配置远端ip地址和端口
-    Udp.write(packet);//把数据写入发送缓冲区
+    Udp.write(packet);
     Udp.endPacket();//发送数据
 }

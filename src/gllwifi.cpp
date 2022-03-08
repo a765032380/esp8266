@@ -47,6 +47,11 @@ void gllWifiSmartConfig()
   WiFi.beginSmartConfig();
   while (1)
   {
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      break;
+    }
+    
     Serial.println("Wait to connect wifi...");
     digitalWrite(LED, LOW);
     delay(1000);
@@ -74,8 +79,8 @@ void gllWifiBaseConfig() {
   Serial.println("Use base config to connect wifi.");
   WiFi.mode(WIFI_STA);
   WiFi.begin(_gllWifiConfig.SSID, _gllWifiConfig.Passwd);
-  //连接超时时间，30s后没有连接将会转入SmartConfig
-  int timeout = 30000;
+  //连接超时时间，10s后没有连接将会转入SmartConfig
+  int timeout = 10000;
   while (WiFi.status() != WL_CONNECTED) {
     Serial.println("Wait to connect wifi...");
     digitalWrite(LED, LOW);

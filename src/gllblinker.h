@@ -7,5 +7,5 @@
 //  * @LastEditTime: 2022-01-19 11:45:26
 //  */
 
-// void setupBlinker(const char* _ssid, const char* _pswd );
-// void runBlinker();
+void setupBlinker();
+void runBlinker();

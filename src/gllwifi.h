@@ -17,7 +17,6 @@
 #include <ArduinoJson.h>
 #include "LittleFS.h"
 
-// GLLWifiConfig _gllWifiConfig;
 
 bool gllWifiSaveConfig();
 void gllWifiSmartConfig();
